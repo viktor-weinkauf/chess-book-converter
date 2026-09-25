@@ -1,0 +1,9 @@
+# test books and books of the user: not part of the program
+/examples/
+*.pdf
+*.djvu
+*.djv
+*.pgn
+
+__pycache__/
+*.pyc
