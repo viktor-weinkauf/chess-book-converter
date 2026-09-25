@@ -10,6 +10,7 @@ Run without arguments for the window, or from the command line:
 """
 
 import argparse
+import difflib
 import hashlib
 import html
 import io
@@ -40,7 +41,8 @@ DJVU_DPI = 300
 TESSDATA_DIRS = [Path(__file__).resolve().parent / "tessdata",
                  Path(r"C:\Program Files\Tesseract-OCR\tessdata")]
 OCR_DPI = 300
-OCR_CACHE_VERSION = 4  # raise when OCR or page layout changes, so old cached pages are not used
+ALT_OCR_DPI = 400  # table books are read a second time: rows the first reading damaged
+OCR_CACHE_VERSION = 5  # raise when OCR or page layout changes, so old cached pages are not used
 OCR_LANGS = {"en": "eng", "ru": "rus+eng", "de": "deu+eng"}
 # Pages are read in parallel, one thread each: more workers than this did not help
 OCR_WORKERS = max(1, min(6, (os.cpu_count() or 3) // 3))
@@ -134,6 +136,12 @@ def visual_lines(words):
     return [sorted(line, key=lambda w: w[0]) for line in regrouped if line]
 
 
+def crosses(word, gap, margin=0):
+    """Does an OCR word cover the column gap? Specks and dashes in the gap
+    ("положе-  —  раскрывая") do not: only a box with letters or digits."""
+    return word[0] < gap + margin and word[2] > gap - margin and any(c.isalnum() for c in word[4])
+
+
 def column_gap(words, width):
     """The x of the gap between two text columns, or None for one column.
     A column gap is an empty band about 8 points wide; spaces between words
@@ -152,7 +160,7 @@ def column_gap(words, width):
     gap = best[1]
     lines = visual_lines(words)
     both = sum(1 for line in lines if line[0][2] <= gap - 4 and line[-1][0] >= gap + 4
-               and not any(w[0] < gap + 4 and w[2] > gap - 4 for w in line))
+               and not any(crosses(w, gap, 4) for w in line))
     if both < max(5, 0.3 * len(lines)):
         return None  # most lines must have text on both sides of the gap
     return gap
@@ -176,7 +184,7 @@ def word_regions(words, gap, width):
     for line in visual_lines(words):
         top = max(0, min(w[1] for w in line) - 1)
         bottom = max(w[3] for w in line) + 1
-        if any(w[0] < gap < w[2] for w in line):
+        if any(crosses(w, gap) for w in line):
             flush()
             regions.append(fitz.Rect(0, top, width, bottom))
         else:
@@ -209,19 +217,19 @@ def ocr_text(page, lang, tessdata, dpi):
 
 def ocr_page(job):
     """OCR one page. Runs in a worker process, so it must be a top-level function."""
-    kind, path, index, lang, tessdata, tmp = job
+    kind, path, index, lang, tessdata, tmp, dpi = job
     if kind == "pdf":
         with fitz.open(path) as doc:
-            return index, ocr_text(doc[index], lang, tessdata, OCR_DPI)
-    image = Path(tmp) / f"ocr{index}.pgm"
-    run_tool("ddjvu", "-format=pgm", f"-page={index + 1}", f"-scale={OCR_DPI}",
+            return index, ocr_text(doc[index], lang, tessdata, dpi)
+    image = Path(tmp) / f"ocr{index}-{dpi}.pgm"
+    run_tool("ddjvu", "-format=pgm", f"-page={index + 1}", f"-scale={dpi}",
              "book.djvu", image.name, cwd=tmp)
     pix = fitz.Pixmap(str(image))
     with fitz.open() as doc:  # page in points, like a PDF page: the layout rules use points
-        scale = 72 / OCR_DPI
+        scale = 72 / dpi
         page = doc.new_page(width=pix.width * scale, height=pix.height * scale)
         page.insert_image(page.rect, pixmap=pix)
-        text = ocr_text(page, lang, tessdata, OCR_DPI)
+        text = ocr_text(page, lang, tessdata, dpi)
     image.unlink()
     return index, text
 
@@ -264,20 +272,20 @@ def detect_ocr_language(kind, path, indexes, tmp, progress):
     return "de" if german >= 3 else "en"
 
 
-def ocr_cache(path, lang):
+def ocr_cache(path, lang, dpi=OCR_DPI):
     """Folder and file name start for cached OCR pages of this book: pages read
     once are not read again (after Stop, an error, or a second run)."""
     digest = hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
     folder = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "ChessConverter" / "ocr-cache"
     folder.mkdir(parents=True, exist_ok=True)
-    return folder, f"v{OCR_CACHE_VERSION}-{digest}-{lang.replace('+', '_')}-{OCR_DPI}"
+    return folder, f"v{OCR_CACHE_VERSION}-{digest}-{lang.replace('+', '_')}-{dpi}"
 
 
-def ocr_book(kind, path, indexes, lang, tmp, progress):
+def ocr_book(kind, path, indexes, lang, tmp, progress, dpi=OCR_DPI):
     """OCR many pages at once in worker processes. Returns {index: text}.
     progress() raises Stopped when the user presses Stop."""
     tessdata = find_tessdata(lang)
-    folder, name = ocr_cache(path, lang)
+    folder, name = ocr_cache(path, lang, dpi)
     cached = lambda i: folder / f"{name}-p{i + 1}.txt"
     texts = {i: cached(i).read_text(encoding="utf-8") for i in indexes if cached(i).exists()}
     done_before = len(texts)
@@ -287,7 +295,7 @@ def ocr_book(kind, path, indexes, lang, tmp, progress):
     os.environ.setdefault("OMP_THREAD_LIMIT", "1")  # workers inherit it: no thread fights
     pool = ProcessPoolExecutor(max_workers=min(OCR_WORKERS, len(indexes)))
     try:
-        pending = {pool.submit(ocr_page, (kind, str(path), i, lang, tessdata, tmp)) for i in indexes}
+        pending = {pool.submit(ocr_page, (kind, str(path), i, lang, tessdata, tmp, dpi)) for i in indexes}
         while pending:
             # wake up twice a second, so that Stop works at once
             done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
@@ -319,11 +327,25 @@ OCR_NUM_RE = re.compile(r"^([0-9ЗзбОоOlI|И]{1,3})([.,]{1,3}|…)(.*)$")
 OCR_DIGITS = str.maketrans({"З": "3", "з": "3", "б": "6", "О": "0", "о": "0", "O": "0",
                             "l": "1", "I": "1", "|": "1", "И": "11"})  # "И." is a misread "11."
 # a dash touching one side only: "e2— e4", "e2 —e4" (" — " between two moves stays)
-OCR_DASH_GAP_RE = re.compile(r"(?<=[\w:])([—–-]) +(?=[\w#{])|(?<=[\w:]) +([—–])(?=[\w#{])")
+OCR_DASH_PAIR_RE = re.compile(r"[—–]-|-[—–]")
+OCR_F1_RE = re.compile(r"(?<=[—–:-])[йЙ](?=[+#!?]*(?:\s|$))")
+OCR_PAREN_NUMBER_RE = re.compile(r"^(\d{1,2})\)\.(?= )", re.M)
+OCR_DOUBLE_DASH_RE = re.compile(r"(?<=[a-hасе][1-8])--(?= ?[a-hасе0-9{][0-9a-hбd]?[!?+#-]*(?:\s|$))")
+# (not when the next word is a whole long move itself: "Кра2— ЛЬ2—f2+")
+OCR_DASH_GAP_RE = re.compile(r"(?<=[\w:?])([—–-]) +(?=[\w#{])(?!\S*\w[—–:]\w)|(?<=[\w:]) +([—–])(?=[\w#{])")
 
 
+# "Лет «17" = Лg7:f7: « after a move and before a square is a colon (quotes like «h» stay)
+# the queen letter Ф read as P (Latin or Cyrillic) at the start of a move
+OCR_QUEEN_P_RE = re.compile(r"(?<![\w@©&])[PРd@©&](?=[a-hасе][1-8bбdз!][—–:-])")  # also "dd6—b4" = Фd6—b4
+# "1" read as "!" where a square needs its rank: "е!" before a dash, or after one at the end
+OCR_BANG_ONE_RE = re.compile(r"(?<=\S[a-hасе])!(?= ?[—–:-])|(?<=[—–:-][a-hасе])!(?=[+#!?]*(?:\s|$))")
+# a 5 or 6 read twice, as a letter and as a digit: "еб5", "gb5" (after "—" and a file)
+OCR_DOUBLE_DIGIT_RE = re.compile(r"(?<=[—–:-][a-hасе])[бb](?=[56](?:[+!?#×x]*)(?:\s|$))")
+OCR_QUOTE_COLON_RE = re.compile(r"(\S*[1-8a-hбЗтв]) «(?=\S{0,2}\d)")
 # "d5 : e4", "7 : gb", "Cd3 :h7?": a space on either side of the colon
-OCR_SPACED_CAPTURE_RE = re.compile(r"(?<=\S)(?: +: *| *: +)(?=\S{1,3}[+#!?]*(?:\s|$))")
+# (the check sign may be read as "--" or "-+": "Фa5: с7--")
+OCR_SPACED_CAPTURE_RE = re.compile(r"(?<=\S)(?: +: *| *: +)(?=\S{1,3}[+#!?×|-]*\.?(?:\s|$))")
 SPACED_CAPTURE_RE = re.compile(r"([a-hасе][1-8]|[KQRBNКФЛСКрCp]) *: +(?=[a-hасе][1-8])")
 
 
@@ -346,7 +368,16 @@ SQUARE_START_RE = re.compile(rf"^[x:×]?{OCR_SQUARE}")
 
 def normalize_ocr(text):
     """Undo typical OCR damage in move text."""
+    text = OCR_BANG_ONE_RE.sub("1", text)  # "Фе4—е!+" = Фe4—e1+, "Фа!-е2" = Фd1—e2
+    text = OCR_DASH_PAIR_RE.sub("—", text)  # "Кре1—-й": one dash read twice
+    text = OCR_F1_RE.sub("f1", text)  # "Кре1—й" = Кpe1—f1: "f1" read as "й"
+    text = OCR_PAREN_NUMBER_RE.sub(r"\1.", text)  # "1). a2—a3": row 19 with its 9 read as ")"
+    text = OCR_DOUBLE_DASH_RE.sub("—", text)  # "Фа1-- 13!": the long dash read as "--"
     text = OCR_DASH_GAP_RE.sub(lambda m: m.group(1) or m.group(2), text)  # "e2— e4"
+    text = OCR_QUOTE_COLON_RE.sub(r"\1 :", text)  # "Лет «17": the colon read as «
+    text = OCR_DOUBLE_DIGIT_RE.sub("", text)  # "Фе7—еб5" = Фe7—e5: the 5 read twice
+    text = OCR_BANG_ONE_RE.sub("1", text)
+    text = OCR_QUEEN_P_RE.sub("Ф", text)  # "Ped—h7" = Фe4—h7, "Pe3—g3+" = Фe3—g3+  # "Фе4—е!+" = Фe4—e1+, "Фа!-е2" = Фd1—e2
     text = OCR_SPACED_CAPTURE_RE.sub(":", text)  # "45 : е4", "Ке4: f6+"
     for _ in range(3):
         for pattern in OCR_GLUED:
@@ -381,9 +412,10 @@ def ocr_junk(line):
 
 # "c67?!" is c6?!, but in "Cd3:57?" the 7 is the rank (57 = h7): a square must come before
 OCR_QUESTION_RE = re.compile(r"(?:(?<=[a-hасе][1-8])|(?<=[?!]))7(?=[?!7]*[?!]$)")
-OCR_CHECK_RE = re.compile(r"(?<=[\w?!])(?:--|-\+|\+\+|-\|-)$")
+# the check sign read as "--", "-+", "4-" or "+4": "f6-+", "Лd7--", "Кf44-" (= Кf4+)
+OCR_CHECK_RE = re.compile(r"(?<=[\w?!])(?:-\+4|-\+-|--|-\+|\+\+|-\|-|-~|\+-)$|(?<=[1-8])(?:4-|\+4)$")  # also "-+-", "-~"
 OCR_EXCLAIM_RE = re.compile(r"(?<=[a-h9][1-8])1(?=[?!]$)|(?<=\?)1$")  # "g31?" = g3!?
-OCR_ROOK_RE = re.compile(r"^(?:J[1lIT7|]{0,2}|1[1lI])(?=[a-hx:])")  # "J1d1", "11f3" = Лd1, Лf3
+OCR_ROOK_RE = re.compile(r"^(?:J[1lIT7|]{0,2}|1[1lI])(?=[a-hx:i])")  # "J1d1", "11f3" = Лd1, Лf3
 
 
 def ocr_number(word):
@@ -424,10 +456,19 @@ def tokenize(pages, ocr_pages=frozenset(), start=1):
                 kind, (num, _), p, l = tokens[-1]
                 tokens[-1] = (kind, (num, True), p, l)
                 continue
+            if word[:1] in ".…" and word.strip(".…") and tokens and tokens[-1][0] == "num":
+                kind, (num, _), p, l = tokens[-1]  # "6. . .Сd6": the dots belong to the number
+                tokens[-1] = (kind, (num, True), p, l)
+                word = word.lstrip(".…")
             while word and word[0] in "([{":
+                if ocr and word[0] == "[" and not re.match(r"\[+(?:\d|[КФЛСKQRBNCJ®]|[a-h][1-8])", word):
+                    word = word[1:]  # "[ero" = "щего": a letter OCR read as "["
+                    continue
                 tokens.append(("open", word[0], page, line))
                 word = word[1:]
             closes = 0
+            if word[-2:-1] in (")", "]", "}") and word[-1:] in ".!?":
+                word = word[:-1]  # "13. g5)." ends a side line and a sentence
             while word and word[-1] in ")]},;":
                 closes += word[-1] in ")]}"
                 word = word[:-1]
@@ -554,10 +595,11 @@ OCR_SHAPES = str.maketrans({
     "а": "a", "Ь": "b", "ь": "b", "е": "e", "ё": "e", "һ": "h",
     "O": "0", "o": "0", "О": "0", "о": "0", "l": "1", "I": "1", "|": "1", "і": "1",
     "З": "3", "з": "3", "б": "6", "т": "7", "t": "f", "q": "g", "¢": "c",
-    "Б": "b", "Т": "7", "в": "g", "J": "L", "д": "g",
+    "Б": "b", "Т": "7", "в": "g", "J": "L", "д": "g", "Ъ": "b", "ъ": "b",
     "х": "x", "Х": "x", "X": "x", "×": "x", ":": "x",
     "—": "-", "–": "-", "‑": "-", "−": "-", "_": "-", "~": "-",
 })
+OCR_SHAPES_KEYS = {chr(k) for k in OCR_SHAPES}
 TARGET_PIECES = {
     "en": {"K": "K", "Q": "Q", "R": "R", "B": "B", "N": "N"},
     "ru": {"K": "Кр", "Q": "Ф", "R": "Л", "B": "С", "N": "К"},
@@ -568,6 +610,7 @@ TARGET_PIECES["ru_ocr"] = TARGET_PIECES["ru"]
 OTHER_NOTATION_PENALTY = 0.4
 FIGURINE_GUESS_PENALTY = 0.3
 UNSURE_PENALTY = 0.2  # a look-alike reading taken although another move looks almost as close
+LOOSE_PENALTY = 0.5  # a following row move read only loosely, to look further ahead
 CHECK_PENALTY = 0.6  # the book prints "+", but the move gives no check
 # Characters OCR often swaps, and what a swap costs (a full change costs 1).
 CONFUSION_COST = {frozenset(pair): 0.4 for pair in (
@@ -576,9 +619,13 @@ CONFUSION_COST = {frozenset(pair): 0.4 for pair in (
     "Fd")}  # Russian OCR: "dg5" = Фg5
 # rarer swaps from old Russian print ("Кео" = Кe5, "c7—ch" = c7—c5, "в2—83" = g2—g3):
 # a bit dearer, so that "gb" still reads as g6 before g5
-CONFUSION_COST.update({frozenset(pair): 0.55 for pair in ("05", "5h", "5b", "35", "8g")})
+CONFUSION_COST.update({frozenset(pair): 0.55 for pair in ("05", "5h", "5b", "35", "8g", "5d")})
 CONFUSABLE = set(CONFUSION_COST)
 LOST_EASILY = {"f": 0.5}  # letters OCR often drops completely ("f5" read as "5")
+
+
+# Cyrillic letters that OCR never makes from a move: two of them make a word
+PROSE_LETTERS = set("абвгдежзийклмнопрстуфхцчшщъыьэюя") - {c.lower() for c in OCR_SHAPES_KEYS}
 
 
 def shape(text):
@@ -587,14 +634,76 @@ def shape(text):
 
 # OCR misreads: "0" or "4" for d ("47—45" = d7—d5), "9" for g, "1" for f
 # ("2—14" = f2—f4), a final "b" for 6 ("Nab" = Na6), "d" for 4, "g" (в) for 8 ("Лав")
-SQUARE_SHAPE_RE = re.compile(r"[a-h?0149][1-8?]|[a-h][bdg]$|0-0")
+# a whole long move with digits for files: "52—54" = b2—b4
+LONG_SHAPE_RE = re.compile(r"(?:Kp|[KFLcBNQR?])?[a-h?0-9][1-8?][-x][a-h?0-9][1-8?]")
+SQUARE_SHAPE_RE = re.compile(r"[a-h?0149][1-8?]|[a-h][bdg]$|x[1-8]|0-0")  # "Л:8+" = Л:f8+
 
 
 def move_code(word):
     """The OCR shape of a word if it may be a move (it has something like a
     square in it), else None."""
     code = shape(SUFFIX_RE.match(word.rstrip(".,;")).group(1))
-    return code if 2 <= len(code) <= 9 and SQUARE_SHAPE_RE.search(code) else None
+    return code if 2 <= len(code) <= 9 and (SQUARE_SHAPE_RE.search(code) or LONG_SHAPE_RE.fullmatch(code)) else None
+
+
+LONG_MOVE_RE = re.compile(r"^(Kp|[KFLc])?([a-h][1-8])[-x]([a-h][1-8])$")
+LONG_MOVE_PIECES = {None: chess.PAWN, "Kp": chess.KING, "K": chess.KNIGHT, "F": chess.QUEEN,
+                    "L": chess.ROOK, "c": chess.BISHOP}
+
+
+RANK_LOOKALIKES = {"b": "56", "d": "45"}  # "eb" may be e5 or e6
+
+
+def blocked_long_move(board, word):
+    """Is the word a clean long move ("Сc8—g4") of the piece that stands on its
+    from-square, which that piece could make on an empty board, but which is not
+    legal now? Then the text is right and an earlier move was misread
+    (1...e5 read as "еб" = e6 blocks the bishop). A rank read as a letter
+    ("Сc4—eb!") counts if every reading of it that the piece could make is blocked."""
+    text = shape(SUFFIX_RE.match(word.rstrip(".,;")).group(1))
+    variants = [text]
+    for pos in range(1, len(text)):  # ranks read as letters, in the from- and to-square
+        if text[pos] in RANK_LOOKALIKES and text[pos - 1] in "abcdefgh" and (
+                pos == len(text) - 1 or text[pos + 1] in "-x"):
+            variants = [v[:pos] + digit + v[pos + 1:] for v in variants for digit in RANK_LOOKALIKES[text[pos]]]
+    verdicts = [v for v in (long_move_verdict(board, variant) for variant in variants) if v is not None]
+    return bool(verdicts) and all(verdicts)
+
+
+def long_move_verdict(board, text):
+    """For a clean long move text: None if it is no move of the piece on its
+    from-square, True if that move is blocked or contradicted, False if it is fine."""
+    match = LONG_MOVE_RE.match(text)
+    if not match:
+        return None
+    kind = LONG_MOVE_PIECES[match.group(1)]
+    start, end = chess.parse_square(match.group(2)), chess.parse_square(match.group(3))
+    piece = board.piece_at(start)
+    if piece is None or piece.piece_type != kind or piece.color != board.turn:
+        return None
+    legal = [m for m in board.legal_moves if m.from_square == start and m.to_square == end]
+    if legal:
+        # "Сc4—e6!" with a dash says "no capture"; if it can only be a capture,
+        # an earlier move was misread (1...e5 as "еб" = e6 leaves a pawn on e6)
+        return "-" in text and all(board.is_capture(m) for m in legal)
+    if kind == chess.PAWN:
+        step = 1 if board.turn == chess.WHITE else -1
+        files = abs(chess.square_file(end) - chess.square_file(start))
+        ranks = (chess.square_rank(end) - chess.square_rank(start)) * step
+        return True if (files == 0 and ranks in (1, 2)) or (files == 1 and ranks == 1) else None
+    empty = chess.Board(None)
+    empty.set_piece_at(start, piece)
+    return True if end in empty.attacks(start) else None
+
+
+def one_digit_off(a, b):
+    """Could OCR have misread row number b as a? At most one digit differs
+    ("19." for "12."), so "40." cannot stand for "33." (that is a comment)."""
+    a, b = str(a), str(b)
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    short, long = sorted((a, b), key=len)  # one digit lost or added: "1." for "11."
+    return len(long) - len(short) == 1 and any(long[:k] + long[k + 1:] == short for k in range(len(long)))
 
 
 def digits_confusable(a, b):
@@ -705,14 +814,40 @@ def closest_move(board, core, langs, check=False):
 # ---------------------------------------------------------------- Game finder
 
 OCR_GUESS = "(OCR guess: check this move)"
+# how many following moves decide a repair: a garbled 21...Лf8—g8 only shows
+# 19 moves later (30...Лg8—g7), so looking 10 moves ahead is not enough
+REPAIR_HORIZON = 24
+# a word in a comment is only read as a move if it starts like one (piece, file or
+# digit) and ends like a square: "Саб" yes, the word "мат" (mate) no
+COMMENT_MOVE_RE = re.compile(r"^(?:Кр|Kp|[КФЛСKQRBNCJ®a-hасе0-9])\S*[1-8бЗзdbgв][!?+#]*$")
+COMMENT_FIX_LIMIT = 0.8  # comments: fix only look-alike mistakes, never guess a whole letter
+ALTERNATIVE_WORDS = {"или", "or", "oder"}
+PIECE_LETTERS = {  # first letters of a printed move -> the piece that moves (OCR look-alikes too)
+    "ru": {"Кр": chess.KING, "Kp": chess.KING, "К": chess.KNIGHT, "K": chess.KNIGHT,
+           "Ф": chess.QUEEN, "®": chess.QUEEN, "Л": chess.ROOK, "J": chess.ROOK,
+           "С": chess.BISHOP, "C": chess.BISHOP},
+    "en": {"K": chess.KING, "Q": chess.QUEEN, "R": chess.ROOK, "B": chess.BISHOP, "N": chess.KNIGHT},
+    "de": {"K": chess.KING, "D": chess.QUEEN, "T": chess.ROOK, "L": chess.BISHOP, "S": chess.KNIGHT},
+}
+SHORT_CAPTURE_RE = re.compile(r"^[a-hасе][:x]?[a-hасе][!?+]*$")  # "fe", "de": pawn takes pawn
 HEADING_NUMBER_RE = re.compile(r"^(?:№|N[eoо°º]?\.?|Nr\.?)$")
 TABLE_RESTART_IDLE = 30  # tokens without a move before a table book may start a new game
 RESIGNED = {"сдались", "сдался", "resigned", "resigns", "gab", "aufgegeben"}
 WHITE_WORDS = {"белые", "white", "weiß", "weiss"}
 BLACK_WORDS = {"черные", "чёрные", "black", "schwarz"}
+THEY_WORDS = {"они", "they", "sie"}  # "они сдались": the side to move resigned
 NAMES_RE = re.compile(r"^(.{2,50}?)\s+[-–—]\s+(.{2,60}?)$")
 MOVE_TEXT_RE = re.compile(r"\b\d{1,3}\.+\s*[a-hKQRBNOКФЛС♔-♟]")
 DATE_RE = re.compile(r"^\d{4}(?:\.(?:\d\d|\?\?)){0,2}$")
+
+
+def legal_line(board, node):
+    """Are the moves of a variation and of its side lines legal from this position?"""
+    if node.move not in board.legal_moves:
+        return False
+    board = board.copy(stack=False)
+    board.push(node.move)
+    return all(legal_line(board, child) for child in node.variations)
 
 
 class Frame:
@@ -728,7 +863,7 @@ class Frame:
 
 class GameFinder:
     def __init__(self, book_name, langs, keep_text, lines, ocr_pages=frozenset(), ocr_lang="en",
-                 table=False):
+                 table=False, alternatives=None):
         self.book_name = book_name
         self.langs = langs
         self.keep_text = keep_text
@@ -750,6 +885,7 @@ class GameFinder:
         self.table = bool(table)
         self.after_number = 0  # junk words that may still be skipped after a move number
         self.problems = []     # (page, error) of spots that could not be read
+        self.alternatives = alternatives or {}  # token index -> other OCR readings of the move
         self.skip_tokens = set()  # words already read as moves out of order
 
     # -- helpers
@@ -757,6 +893,50 @@ class GameFinder:
         if page in self.ocr_pages:
             return parse_move(board, word, self.ocr_langs, fuzzy=True)
         return parse_move(board, word, self.langs)
+
+    def readings(self, tokens, k):
+        return [tokens[k][1]] + self.alternatives.get(k, [])
+
+    def parse_token(self, board, tokens, k):
+        """Parse a move word; if it fails, try its other OCR readings. An exact
+        reading wins over a look-alike one ("d2—d4" before "д2—04" = g2—g4)."""
+        page = tokens[k][2]
+        if page in self.ocr_pages and len(self.readings(tokens, k)) > 1:
+            for word in self.readings(tokens, k):
+                move, nags = parse_move(board, word, self.ocr_langs)
+                if move is not None:
+                    return move, nags
+            # no exact reading: the closest look-alike over all readings wins
+            move, _ = self.read_token(board, tokens, k)
+            if move is not None:
+                for word in self.readings(tokens, k):
+                    found, nags = self.parse(board, word, page)
+                    if found == move:
+                        return move, nags
+                return move, []
+        for word in self.readings(tokens, k):
+            move, nags = self.parse(board, word, tokens[k][2])
+            if move is not None:
+                return move, nags
+        return None, []
+
+    def token_candidates(self, board, tokens, k, top=4):
+        """candidate_moves over all OCR readings of a token: (distance, move), best first."""
+        best = {}
+        for word in self.readings(tokens, k):
+            for d, move in candidate_moves(board, word, self.ocr_langs, top):
+                if move not in best or d < best[move]:
+                    best[move] = d
+        return sorted(((d, m) for m, d in best.items()), key=lambda x: x[0])[:top]
+
+    def read_token(self, board, tokens, k, lenient=False):
+        """read_ocr for a token: the best of all its OCR readings."""
+        best = (None, None)
+        for word in self.readings(tokens, k):
+            move, d = self.read_ocr(board, word, lenient)
+            if move is not None and (best[0] is None or d < best[1]):
+                best = (move, d)
+        return best
 
     def read_ocr(self, board, word, lenient=False):
         """(move, distance) for an OCR word; distance 0 for an exact reading.
@@ -774,27 +954,61 @@ class GameFinder:
                 return best[0][1], best[0][0] + UNSURE_PENALTY
         return move, d
 
-    def fitting_moves(self, board, tokens, start, limit=10):
+    def fitting_moves(self, board, tokens, start, limit=10, loose=0):
         """How many of the next moves in the book fit after this position,
-        and how different from the book text they look: (count, distance)."""
+        and how different from the book text they look: (count, distance).
+        loose: how many badly read row moves may be stepped over."""
         board = board.copy(stack=False)
         got, cost, depth = 0, 0, 0
         # table books: long comments between the rows do not use up the window
         window = limit * (60 if self.table else 8)
-        for index, (kind, value, page, _) in enumerate(tokens[start:start + window], start):
+        off_line = None  # a "row" whose number does not fit: a comment piece ("63. Кg5+.")
+        for index, (kind, value, page, line) in enumerate(tokens[start:start + window], start):
             if kind in ("open", "close"):  # skip side lines
                 depth = max(0, depth + (1 if kind == "open" else -1))
                 continue
+            if self.table and kind == "num" and not depth and index in self.rows:
+                if value == (1, False) and board.fullmove_number > 2:
+                    break  # the row "1." of the next game
+                num, moves = value[0], board.fullmove_number
+                # "19." may stand for "12.", but not "66." when the row "60." follows soon
+                fits = num in (moves, moves + 1) or any(
+                    one_digit_off(num, n) and not self.exact_row_soon(tokens, index, (n,))
+                    for n in (moves, moves + 1))
+                off_line = None if fits else line
             if depth or kind in ("num", "junk") or (kind == "word" and value.translate(DASHES) in NAG_TOKENS):
                 continue
-            if self.table and index not in self.rows:
+            if self.table and (index not in self.rows or line == off_line):
                 continue  # table books: comments between the rows
             if kind != "word":
                 break
-            if move_code(value) is None:
+            if move_code(value.strip(".")) is None and not (
+                    self.table and len(value.strip(".")) > 3 and row_move(value)):  # "ФБ:В" is a move
+                # a comment word, or "..е" junk for "..."
                 continue  # a comment word
             if page in self.ocr_pages:
-                move, d = self.read_ocr(board, value, lenient=True)
+                move, d = self.read_token(board, tokens, index, lenient=True)
+                if move is not None and d > 0 and self.table and index in self.rows:
+                    # two close look-alikes ("a7—ab!": a6 or a5): take the one after
+                    # which the next row move still reads (31...a5 because of 32...a5—a4)
+                    options = self.token_candidates(board, tokens, index)[:2]
+                    if len(options) == 2 and options[1][0] <= 0.6:
+                        costs = [(self.next_moves_cost(self.after(board, o[1]), tokens, index, 2) + o[0], n, o)
+                                 for n, o in enumerate(options)]
+                        costs.sort()
+                        if costs[1][0] - costs[0][0] >= 0.5:
+                            move, d = costs[0][2][1], costs[0][2][0] + UNSURE_PENALTY
+                if move is None and loose and self.table and index in self.rows:
+                    # one badly read row move ("Са!3" = Сd1—f3) must not hide the
+                    # proof that comes later: step over it, at a cost. Take the
+                    # reading after which the most next moves fit.
+                    tries = [(self.fitting_moves(self.after(board, option), tokens, index + 1,
+                                                 limit - got - 1), -d_option, n, option)
+                             for n, (d_option, option) in enumerate(self.token_candidates(board, tokens, index))]
+                    if tries:
+                        (fit, fit_cost), minus_d, _, option = max(tries, key=lambda t: (t[0][0], -t[0][1] + t[1], -t[2]))
+                        if fit:
+                            move, d, loose = option, -minus_d + LOOSE_PENALTY, loose - 1
             else:
                 (move, _), d = self.parse(board, value, page), 0
             if move is None:
@@ -805,27 +1019,142 @@ class GameFinder:
                 break
         return got, cost
 
+    def next_moves_cost(self, board, tokens, i, count):
+        """How hard the next row moves after token i are to read (a failed one costs 3)."""
+        board = board.copy(stack=False)
+        total, k = 0.0, i
+        for _ in range(count):
+            k = self.next_row_word(tokens, k)
+            if k is None:
+                break
+            move, d = self.read_token(board, tokens, k, lenient=True)
+            if move is None:
+                return total + 3
+            board.push(move)
+            total += d
+        return total
+
+    def next_row_word(self, tokens, i):
+        """The next row word that looks like a move, or None."""
+        for k in range(i + 1, min(i + 200, len(tokens))):
+            if k in self.rows and tokens[k][0] == "word" and row_move(tokens[k][1]):
+                return k
+        return None
+
+    def last_row_move(self, tokens, i):
+        """Is this the last row move of the game (the next row is the next game's "1.")?"""
+        for k in range(i + 1, min(i + 400, len(tokens))):
+            if k in self.rows and tokens[k][0] == "num" and tokens[k][1] == (1, False):
+                return True
+            if k in self.rows and tokens[k][0] == "word" and row_move(tokens[k][1]):
+                return False
+        return i + 400 >= len(tokens)
+
+    @staticmethod
+    def long_row(tokens, i):
+        """Does the row that starts at token i hold a move in long notation ("a2—a3")?"""
+        for k in range(i + 1, min(i + 6, len(tokens))):
+            if tokens[k][3] != tokens[i][3]:
+                break
+            if tokens[k][0] == "word" and LONG_PAIR_RE.search(tokens[k][1]):
+                return True
+        return False
+
+    def exact_row_soon(self, tokens, index, numbers, white=False):
+        """Does a row with one of these numbers follow soon? white: only rows
+        that start with White's move count ("3. ... Сf8—g7" is Black's half)."""
+        return any(tokens[k][0] == "num" and k in self.rows and tokens[k][1][0] in numbers
+                   and (not white or self.white_half(tokens, k))
+                   for k in range(index + 1, min(index + 200, len(tokens))))
+
+    @staticmethod
+    def white_half(tokens, k):
+        """Does the row at token k start with a move (not with junk for "...")?"""
+        return (k + 1 < len(tokens) and tokens[k + 1][0] == "word" and tokens[k + 1][3] == tokens[k][3]
+                and move_code(tokens[k + 1][1].strip(".")) is not None)
+
     def repair(self, frame, tokens, i):
+        """repair_move, and how far the repaired line is from the book text:
+        self.repair_look (the move itself) and self.repair_cost (with the moves after it)."""
+        self.repair_look = self.repair_cost = None
+        self.repair_scores = {}
+        move = self.repair_move(frame, tokens, i)
+        if move is not None:
+            code = shape(SUFFIX_RE.match(tokens[i][1].rstrip(".,;")).group(1))
+            self.repair_look = min(looks_like(frame.board, move, shape(SUFFIX_RE.match(w.rstrip(".,;")).group(1)),
+                                              self.ocr_langs) for w in self.readings(tokens, i))
+            self.repair_cost = self.repair_look + self.repair_scores.get(move, (0, 0))[1]
+        return move
+
+    def repair_move(self, frame, tokens, i):
         """OCR garbled a move beyond recognition. Try every legal move and keep
         the one after which the most following book moves make sense."""
         self.repair_fit = 0  # how well the best repair fits; backtrack must beat it
         code = shape(SUFFIX_RE.match(tokens[i][1].rstrip(".,;")).group(1))
-        if not 1 <= len(code) <= 8 or not re.search(r"[1-8?]", code):
+        in_row = self.table and i in self.rows  # table rows hold only moves: "М:eb" = f4:e5
+        if not 1 <= len(code) <= 8 or not (in_row or re.search(r"[1-8?]", code)):
             return None  # the next moves are checked anyway, so any short word with a digit
-        scored = [(*self.fitting_moves(self.after(frame.board, m), tokens, i + 1), m)
+        if not in_row and sum(c.lower() in PROSE_LETTERS for c in tokens[i][1]) >= 2:
+            return None  # a comment word ("теория": и, я are in no move), not a garbled move
+        scored = [(*self.fitting_moves(self.after(frame.board, m), tokens, i + 1, REPAIR_HORIZON), m)
                   for m in frame.board.legal_moves]
         best = max((s for s, _, _ in scored), default=0)
         self.repair_fit = best
-        if best < 2:
+        self.repair_scores = {m: (s, c) for s, c, m in scored}
+        # in a table row one following move is enough when only one move fits
+        # at all (the next rows may be damaged too: "34. ЛП:5 ЛИ:15")
+        if best == 0 and in_row and not self.last_row_move(tokens, i):
+            # the whole row is garbled ("18. #2:В ФБ:В" = g2:f3 Фf6:f3): after any move
+            # the next word fails too, so look past one badly read move
+            loose = [(*self.fitting_moves(self.after(frame.board, m), tokens, i + 1,
+                                          REPAIR_HORIZON, loose=1), m) for m in frame.board.legal_moves]
+            if max((s for s, _, _ in loose), default=0) >= 4:
+                scored = loose
+                best = max(s for s, _, _ in scored)
+                self.repair_fit = best
+                self.repair_scores = {m: (s, c) for s, c, m in scored}
+        only_fit = in_row and best == 1 and sum(1 for s, _, _ in scored if s == best) == 1
+        if best == 0 and in_row and self.last_row_move(tokens, i):
+            # the last move of a game: nothing follows, so the text alone decides
+            # ("Кpg5:М" = Кpg5:f4, the only capture), and it is marked as a guess
+            pool = [m for _, _, m in scored]
+            if "x" in code[1:] and any(frame.board.is_capture(m) for m in pool):
+                pool = [m for m in pool if frame.board.is_capture(m)]
+            ranked = sorted((looks_like(frame.board, m, code, self.ocr_langs), n, m) for n, m in enumerate(pool))
+            if ranked and (len(ranked) == 1 or ranked[1][0] - ranked[0][0] >= 0.35):
+                self.guessed = True
+                return ranked[0][2]
+            return None
+        if best < 2 and not only_fit:
             return None
         # most following moves fit; among those, the following moves need the
         # fewest OCR corrections (after 4.b3 "Сc1—b2" reads exactly, after 4.h3 not)
+        # moves the word nearly spells ("a7—ab": a6 or a5) come first, if they fit best
+        if "x" in code[1:]:  # "Фа:В" = Фd1:f3: the word says capture
+            captures = [(s, c, m) for s, c, m in scored if s == best and frame.board.is_capture(m)]
+            if captures:
+                scored = captures
+        says = says_check(SUFFIX_RE.match(tokens[i][1].rstrip(".,;")).group(2))
+        near = [(s, c, m) for s, c, m in scored if s == best
+                and ocr_score(frame.board, m, code, self.ocr_langs, says) <= 0.6]
+        if near:
+            scored = near
         cheapest = min(c for s, c, _ in scored if s == best)
         fits = [m for s, c, m in scored if s == best and c <= cheapest + 0.3]
+        if len(fits) > 1 and in_row:
+            # a tie: look further, past one badly read move (18...b5 or b6 for
+            # "b7—bb" only shows at 28...b5—b4, after the garbled 23.Сd1—f3)
+            further = [(*self.fitting_moves(self.after(frame.board, m), tokens, i + 1,
+                                            REPAIR_HORIZON, loose=1), m) for m in fits]
+            top = max(s for s, _, _ in further)
+            if top > best:
+                low = min(c for s, c, _ in further if s == top)
+                fits = [m for s, c, m in further if s == top and c <= low + 0.3]
         if len(fits) == 1:
             return fits[0]
         # several fit equally well: take the one that looks most like the word
-        ranked = sorted((looks_like(frame.board, m, code, self.ocr_langs), n, m)
+        check = says_check(SUFFIX_RE.match(tokens[i][1].rstrip(".,;")).group(2))  # the "+" counts too
+        ranked = sorted((ocr_score(frame.board, m, code, self.ocr_langs, check), n, m)
                         for n, m in enumerate(fits))
         if ranked[1][0] - ranked[0][0] >= 0.15:  # they fit equally: any clear look decides
             return ranked[0][2]
@@ -837,12 +1166,16 @@ class GameFinder:
         gaps.sort()
         if len(gaps) == 1 or gaps[0][0] < gaps[1][0]:
             return gaps[0][2]
-        if best >= 4 and len(fits) <= 3:
+        others = [d for d, _, m in ranked if m not in closest]
+        clear_look = len(closest) <= 3 and (not others or others[0] - ranked[0][0] >= 0.35)
+        if best >= 4 and (len(fits) <= 3 or clear_look):
             # still a tie, but the game goes on well after any of them: guess
-            # like a player would (the move toward the centre, Nf3 before Nh3),
-            # so the rest of the game is not lost, and mark the guess
+            # like a player would, so the rest of the game is not lost, and
+            # mark the guess: the move toward the centre (Nf3 before Nh3), and
+            # a capture toward the centre (fxe5 before dxe5)
             self.guessed = True
-            return max(closest, key=lambda m: -self.off_centre(m.to_square))
+            return max(closest, key=lambda m: (-self.off_centre(m.to_square),
+                                               self.off_centre(m.from_square)))
         return None
 
     @staticmethod
@@ -855,12 +1188,15 @@ class GameFinder:
         board.push(move)
         return board
 
-    def backtrack(self, frame, tokens, i, depth=10):
+    def backtrack(self, frame, tokens, i, rival=None, must_clear=False):
         """OCR read an earlier move as another legal move (like e5 as "еб" = e6),
         so the mistake only shows now. Try another reading for one of the last
         moves, read the moves after it again, and keep the version after which
         the most book moves fit. Returns True if the line was changed."""
         line, node = [], frame.node
+        # table books: the proof may come late (1...e5 read as e6 shows at 7...e5:d4)
+        # (a blocked move proves a misread earlier, so it may look further back)
+        depth = (40 if must_clear else 26) if self.table else 10
         while (node is not None and node is not frame.base and len(line) < depth
                and id(node) in self.token_of):
             line.insert(0, node)
@@ -869,27 +1205,38 @@ class GameFinder:
         for start in range(len(line)):
             part = line[start:]
             board = part[0].parent.board()
-            words = [tokens[self.token_of[id(n)]][1] for n in part]
-            for cost, first in candidate_moves(board, words[0], self.ocr_langs):
+            indexes = [self.token_of[id(n)] for n in part]
+            for cost, first in self.token_candidates(board, tokens, indexes[0], 6):
                 if first == part[0].move:
                     continue
+                swap = cost - dict((m, d) for d, m in self.token_candidates(board, tokens, indexes[0])).get(part[0].move, 0)
                 after = board.copy(stack=False)
                 after.push(first)
                 moves = [first]
-                for word in words[1:]:
-                    move, d = self.read_ocr(after, word)
+                for index in indexes[1:]:
+                    move, d = self.read_token(after, tokens, index)
                     if move is None:
                         break
                     after.push(move)
                     moves.append(move)
                     cost += d
                 else:
-                    fit, fit_cost = self.fitting_moves(after, tokens, i)
+                    fit, fit_cost = self.fitting_moves(after, tokens, i, REPAIR_HORIZON)
                     # most moves fitting, then closest to the book text, then smallest change
                     key = (fit, -(cost + fit_cost), start)
                     # only change old moves if that fits clearly better than
                     # the best repair of the current move alone
-                    if fit > self.repair_fit + 1 and (best is None or key > best[0]):
+                    # or, against a repair that looks unlike the text, if it fits as
+                    # well and is clearly closer to the book text
+                    clearer = (rival is not None and fit >= self.repair_fit and cost + fit_cost + 1 < rival
+                               and swap <= 0.6  # only a look-alike swap ("еб": e6 -> e5)
+                               and self.read_token(after, tokens, i)[0] is not None)  # now it reads clearly
+                    better = clearer if rival is not None else fit > self.repair_fit + 1
+                    if swap > (1.2 if must_clear else 0.6):
+                        better = False  # only a look-alike swap, never a far change of a good move
+                    if must_clear and any(blocked_long_move(after, w) for w in self.readings(tokens, i)):
+                        better = False  # the blocked move must be clean after the change
+                    if better and (best is None or key > best[0]):
                         best = (key, part, moves)
         if best is None:
             return False
@@ -901,14 +1248,23 @@ class GameFinder:
         parent = part[0].parent
         was_main = parent.variations[0] is part[0]
         kept = [(n.comment, set(n.nags), self.token_of[id(n)]) for n in part]
+        # side lines hang on the replaced moves ("4. c3 (4. d4)"): keep them
+        sides = [[] if k == 0 else [v for v in n.parent.variations if v is not n]
+                 for k, n in enumerate(part)]
         pending, frame.text = frame.text, []
         parent.remove_variation(part[0])
         frame.node = None if parent is frame.base else parent
         frame.board = parent.board()
-        for move, (comment, nags, token) in zip(moves, kept):
+        for move, (comment, nags, token), others in zip(moves, kept, sides):
+            before = frame.node if frame.node is not None else parent
+            board = frame.board.copy(stack=False)
             self.play(frame, move, nags)
             frame.node.comment = comment
             self.token_of[id(frame.node)] = token
+            for side in others:  # still legal after the corrected moves?
+                if legal_line(board, side):
+                    side.parent = before
+                    before.variations.append(side)
         first = parent.variation(moves[0])
         if was_main:
             parent.promote_to_main(first)
@@ -954,6 +1310,7 @@ class GameFinder:
         """Look for "White - Black" and our "Event · Site · Date" line above the moves."""
         found_names = False
         checked = 0
+        line = int(line)  # a row the second OCR reading added may sit between two lines
         for i in range(line - 1, max(line - 12, -1), -1):
             text = self.lines[i]
             if not text or text.isdigit() or FEN_RE.search(text):
@@ -984,6 +1341,8 @@ class GameFinder:
         if self.game is None:
             return
         root = self.stack[0]
+        if result is None and root.board.is_checkmate():  # "36. h2—h4×": the game ends in mate
+            result = "0-1" if root.board.turn == chess.WHITE else "1-0"
         if result and root.text:
             self.attach(root, root.node)
         plies = sum(1 for _ in self.game.mainline_moves())
@@ -996,17 +1355,101 @@ class GameFinder:
 
     # -- moves and comments
     def attach(self, frame, node):
-        text = " ".join(frame.text).strip()
+        if node is None:
+            node = self.game
+        text = self.fix_comment_moves(" ".join(frame.text).strip(), node)
         frame.text = []
         if not text:
             return
-        if node is None:
-            node = self.game
         node.comment = f"{node.comment} {text}".strip()
+
+    def fix_comment_moves(self, text, node):
+        """OCR garbles moves in comments too ("6...Саб" for 6...Сd6). After a
+        move number the position is known from the game, so a garbled move is
+        read like a game move and written correctly. Words that already read
+        exactly stay as printed."""
+        if not text or not self.ocr_pages:
+            return text
+        history = {}  # ply -> position, along the line that leads to this comment
+        while node is not None:
+            board = node.board()
+            history[board.ply()] = board
+            node = node.parent
+        lang = self.ocr_langs[0]
+        letters = TARGET_PIECES.get(lang, TARGET_PIECES["en"])
+        out, board, before = [], None, None  # before: the position before the last move read
+        side_line = {}  # ply -> position in the side line the comment itself plays
+        saved = []      # side lines in brackets must not overwrite the comment's line
+        for word in text.split(" "):
+            opens = word.count("(") + word.count("[")
+            for _ in range(opens):
+                saved.append((dict(side_line), board, before))
+            if opens and before is not None:
+                board = before.copy()  # "28. Сa3 (или Сg1)": another move instead of the last
+            core = word.strip("()[],;").lstrip(".")
+            number = re.match(r"^(\d{1,3})(\.{1,3}|…)$", core)
+            is_move = core and ((move_code(core.rstrip(".")) and COMMENT_MOVE_RE.match(core.rstrip(".")))
+                                or SHORT_CAPTURE_RE.match(core.rstrip(".")))
+            if number:
+                ply = 2 * (int(number.group(1)) - 1) + (number.group(2) != ".")
+                # "13...Кe4 из-за 14. С:e4 fe (14...de 15. Кc4)": first the
+                # comment's own moves, then the game
+                board = side_line.get(ply, history.get(ply, None))
+                board = board.copy() if board is not None else None
+                before = None
+            elif board is not None and is_move:
+                core = core.rstrip(".")  # a full stop ends the sentence, it stays
+                move, cost = self.read_ocr(board, core)
+                if move is None:
+                    board = None
+                else:
+                    if 0 < cost <= COMMENT_FIX_LIMIT and self.same_piece(board, move, core, lang):
+                        # garbled: write the move the book means
+                        word = word.replace(core, self.book_notation(board, move, core, letters, lang))
+                    before = board.copy()
+                    board.push(move)
+                    side_line[board.ply()] = board.copy()
+            elif core.lower() in ALTERNATIVE_WORDS and before is not None:
+                board = before.copy()  # "8. К:f6+ или 8. Кg3", "Сa3 (или Сg1)": instead of the last move
+            elif core and not opens:
+                board = None  # "19...Кe7 и затем Лac8": other words break the line
+            out.append(word)
+            for _ in range(word.count(")") + word.count("]")):
+                if saved:
+                    side_line, board, before = saved.pop()
+        return " ".join(out)
+
+    @staticmethod
+    def same_piece(board, move, printed, lang):
+        """Does the piece letter the book printed fit the piece that moves?
+        ("Себ" starts with С, a bishop: it must not become a pawn move)"""
+        letter = PIECE_LETTERS.get(lang.replace("_ocr", ""), {})
+        for prefix in sorted(letter, key=len, reverse=True):
+            if printed.startswith(prefix):
+                return board.piece_type_at(move.from_square) == letter[prefix]
+        return True  # no piece letter: a pawn, or a letter OCR lost
+
+    @staticmethod
+    def book_notation(board, move, printed, letters, lang):
+        """A move written like the book prints it: long ("d2—d3") or short
+        ("Сd6"), with the book's piece letters and annotation marks."""
+        body, suffix = SUFFIX_RE.match(printed).groups()
+        dash = re.search(r"[—–-]", body)
+        capture = ":" if lang.startswith("ru") else "x"
+        if dash and not board.is_castling(move):
+            piece = board.piece_at(move.from_square).symbol().upper()
+            text = ("" if piece == "P" else letters[piece]) + chess.square_name(move.from_square)
+            text += (capture if board.is_capture(move) else dash.group(0)) + chess.square_name(move.to_square)
+            if move.promotion:
+                text += letters[chess.piece_symbol(move.promotion).upper()]
+            return text + suffix
+        san = re.sub(r"[KQRBN]", lambda m: letters[m.group(0)], board.san(move).rstrip("+#"))
+        return san.replace("x", capture) + suffix
 
     def play(self, frame, move, nags):
         parent = frame.node if frame.node is not None else frame.base
-        pending = " ".join(frame.text).strip()
+        pending = self.fix_comment_moves(" ".join(frame.text).strip(),
+                                         frame.node if frame.node is not None else parent)
         frame.text = []
         if frame.node is not None and pending:
             frame.node.comment = f"{frame.node.comment} {pending}".strip()
@@ -1063,14 +1506,31 @@ class GameFinder:
 
         if kind == "num":
             num, black = value
+            main = self.stack[0].board if self.stack else None
+            if (self.table and i in self.rows and len(self.stack) > 1 and self.stack[0].node is not None
+                    and (self.matches(main, num, black) or (
+                        black == (main.turn == chess.BLACK) and one_digit_off(num, main.fullmove_number)
+                        and not self.exact_row_soon(tokens, i, (main.fullmove_number,))))):
+                # a row that fits the main line: an open bracket in a comment ("(48. К: ро-")
+                # was never closed, so the side lines end here
+                while len(self.stack) > 1:
+                    done = self.stack.pop()
+                    if done.node is not None:
+                        self.attach(done, done.node)
+                    elif len(" ".join(done.text)) > 2:
+                        self.add_text("(" + " ".join(done.text) + ")")
+                frame = self.stack[-1]
             depth0 = frame is None or (frame.node is not None and len(self.stack) == 1)
             if frame is not None and self.stack[0].node is not None and self.idle >= 20:
                 depth0 = True  # a bracket was never closed, but the game has gone quiet
             # "№ 1. Французская защита" is a heading (OCR reads № as "Ne" or "No")
             heading = (i and tokens[i - 1][0] == "word" and tokens[i - 1][3] == line
                        and HEADING_NUMBER_RE.match(tokens[i - 1][1]))
-            if self.table and frame is not None and self.idle < TABLE_RESTART_IDLE:
+            if (self.table and frame is not None and self.idle < TABLE_RESTART_IDLE
+                    and not self.stack[0].board.is_checkmate()):  # after mate a new game starts
                 depth0 = False  # in a table book "1." inside a game is a misread "11."
+            if self.table and i not in self.rows:
+                depth0 = False  # table books: a game starts with the row "1.", not "1. d4" in a comment
             if num == 1 and not black and depth0 and not heading and self.lookahead(
                     tokens, i + 1, chess.Board(), 1 if frame is None else 3):
                 intro = []  # text before "1." on the same line
@@ -1100,7 +1560,11 @@ class GameFinder:
             elif (self.table and mainline and not black and num == frame.board.fullmove_number
                   and frame.board.turn == chess.BLACK):
                 frame.expect = True  # "13.  ...  Лf8—e8": OCR lost the dots
-            elif self.table and mainline and self.next_move_fits(frame.board, tokens, i + 1):
+            elif (self.table and mainline and one_digit_off(num, frame.board.fullmove_number)
+                  and self.next_move_fits(frame.board, tokens, i + 1)
+                  # but not when the row with the right number follows ("16. ed ..." before "12.")
+                  and not (self.exact_row_soon(tokens, i, (frame.board.fullmove_number,))
+                           and not self.long_row(tokens, i))):
                 frame.expect = True  # a row start: OCR misread the number ("19." for "12.")
             elif frame.node is None and frame is self.stack[0] and self.from_fen \
                     and black == (frame.board.turn == chess.BLACK):
@@ -1148,10 +1612,19 @@ class GameFinder:
         # kind == "word"
         plain = value.translate(DASHES)
         side = tokens[i - 1][1].lower() if i and tokens[i - 1][0] == "word" else ""
-        if plain.lower().strip(".!") in RESIGNED and side in WHITE_WORDS | BLACK_WORDS:
+        if is_resign_word(value) and side in WHITE_WORDS | BLACK_WORDS:
             if frame.text and frame.text[-1].lower() == side:
                 frame.text.pop()
             self.close("0-1" if side in WHITE_WORDS else "1-0")  # "Белые сдались."
+            return
+        names = {self.game.headers.get(c, "?").split()[0].lower(): c
+                 for c in ("White", "Black") if self.game is not None and self.game.headers.get(c, "?") != "?"}
+        if is_resign_word(value) and side.strip(",") in names and self.game is not None:
+            self.close("0-1" if names[side.strip(",")] == "White" else "1-0")  # "Нимцович сдался"
+            return
+        if (is_resign_word(value) and side.strip(",") in THEY_WORDS and len(self.stack) == 1
+                and frame.node is not None):  # "..., поэтому они сдались": the side to move
+            self.close("0-1" if frame.board.turn == chess.WHITE else "1-0")
             return
         if (plain in RESULTS and all(f.node is None for f in self.stack[1:])
                 and not (plain == "*" and page in self.ocr_pages)):  # OCR junk has "*"
@@ -1167,17 +1640,30 @@ class GameFinder:
             self.add_text(value)
             return
         if frame.expect and frame.base is not None:
-            move, nags = self.parse(frame.board, value, page)
-            if (move is None and self.table and self.after_number and page in self.ocr_pages
-                    and len(plain.strip(".")) <= 3 and move_code(value) is None
-                    and not re.search(r"[\dЗзбОо]", plain)):  # "КЗ" is a bad move, not junk
-                self.after_number -= 1  # "8.  ce  Сf8—e7": OCR junk for "..."
-                return
+            if (page in self.ocr_pages and frame.node is not None
+                    and any(blocked_long_move(frame.board, w) for w in self.readings(tokens, i))
+                    and not any(d <= 0.6 for d, _ in self.token_candidates(frame.board, tokens, i))):
+                # (unless a legal move is a close look-alike: "Лe2:еб" = Лe2:e5)
+                # the book text is a clean move that an earlier misread blocks:
+                # fix the earlier move before any fuzzy reading of this one
+                self.repair_fit = 2
+                self.backtrack(frame, tokens, i, must_clear=True)
+            move, nags = self.parse_token(frame.board, tokens, i)
+            last_in_row = i + 1 >= len(tokens) or tokens[i + 1][3] != tokens[i][3]
+            if (move is None and self.table and (self.after_number or (last_in_row and i in self.rows))
+                    and page in self.ocr_pages
+                    and len(plain.strip(".")) <= 3 and move_code(plain.strip(".")) is None
+                    # "КЗ" (a piece and a digit look-alike) is a bad move, not junk; "зе." is junk
+                    and not (re.search(r"[\dЗзбОо]", plain) and re.match(r"(?:Кр|Kp|[КФЛСKQRBNC®])", plain))
+                    and not re.search(r"[a-hасе][\dЗзбОо]|\w[—–:-]\w", plain)):  # "еб", "2—4" are moves
+                self.after_number = max(0, self.after_number - 1)  # "8.  ce  Сf8—e7" or
+                return  # "20.  Сg2—f3  ..е": OCR junk for "..."
             if move is None and page in self.ocr_pages:
                 move = self.repair(frame, tokens, i)
-                if (move is None and frame.node is not None and move_code(value)
-                        and self.backtrack(frame, tokens, i)):
-                    move, nags = self.parse(frame.board, value, page)
+                unlike = move is not None and self.repair_look > 1  # the repair looks unlike the text
+                if ((move is None or unlike) and frame.node is not None and move_code(value)
+                        and self.backtrack(frame, tokens, i, self.repair_cost if unlike else None)):
+                    move, nags = self.parse_token(frame.board, tokens, i)
                     if move is None:
                         move = self.repair(frame, tokens, i)
             if move is not None:
@@ -1195,19 +1681,33 @@ class GameFinder:
         this row holds a word that fits for black, followed by one that then
         fits for white, play black's move now and skip its word later."""
         row = [k for k in range(i + 1, min(i + 6, len(tokens)))
-               if k in self.rows and tokens[k][0] == "word" and tokens[k][3] == tokens[i][3]]
-        for k in row:
-            move, nags = self.parse(frame.board, tokens[k][1], tokens[k][2])
+               if k in self.rows and tokens[k][0] == "word" and tokens[k][3] == tokens[i][3]
+               and row_move(tokens[k][1])]
+        best = None
+        for position, k in enumerate(row):  # anywhere in the row: "12. f2—f4 Кh5—f6 Сd6:e5"
+            move, cost = self.read_token(frame.board, tokens, k)
             if move is None:
                 continue
-            after = self.after(frame.board, move)
-            rest = [n for n in row if n != k]
-            if rest and self.parse(after, tokens[rest[0]][1], tokens[rest[0]][2])[0] is not None:
-                self.play(frame, move, nags)
-                self.token_of[id(frame.node)] = k
-                self.skip_tokens.add(k)
-                return True
-        return False
+            board = self.after(frame.board, move)
+            fit = 1
+            for n in (n for n in row if n != k):  # then white's move, then black's
+                reply, d = self.read_token(board, tokens, n)
+                if reply is None:
+                    break
+                board.push(reply)
+                fit, cost = fit + 1, cost + d
+            # most row moves fit, then closest to the text; the moved-down black
+            # move stands before the row's own black move, so earlier words win ties
+            key = (fit, -(cost + 0.3 * position))
+            if fit >= 2 and (best is None or key > best[0]):
+                best = (key, k, move)
+        if best is None:
+            return False
+        _, k, move = best
+        self.play(frame, move, [])
+        self.token_of[id(frame.node)] = k
+        self.skip_tokens.add(k)
+        return True
 
     def next_move_fits(self, board, tokens, start):
         """Is the next move-like word after a move number a legal move here?"""
@@ -1269,8 +1769,26 @@ def token_lines(tokens):
             start = i
 
 
+def is_resign_word(word):
+    """"сдались", or its start before a line break ("сда-")."""
+    w = word.lower().strip(".!")
+    cut = w.rstrip("-—–")
+    return w in RESIGNED or (cut != w and len(cut) >= 3 and any(r.startswith(cut) for r in RESIGNED))
+
+
+def row_end(tokens, start, end):
+    """A row may end with the result ("38. Лh7:a7. Черные сдались."): where the
+    row part of the line ends."""
+    for k in range(start + 1, end - 1):
+        if (tokens[k][0] == "word" and tokens[k][1].lower().strip(".,") in WHITE_WORDS | BLACK_WORDS
+                and tokens[k + 1][0] == "word" and is_resign_word(tokens[k + 1][1])):
+            return k
+    return end
+
+
 def is_row(tokens, start, end):
     """A table row: a move number first, then one or two moves ("12. Фd1—c2 Крg8—h8")."""
+    end = row_end(tokens, start, end)
     rest = [t for t in tokens[start + 1:end] if t[0] != "junk"]
     # only moves, or short OCR junk for "..." ("ce", "не."); a comment line that
     # starts with a number ("28. ..bc с неотразимыми угро-") is not a row
@@ -1280,34 +1798,305 @@ def is_row(tokens, start, end):
 
 
 def row_move(word):
-    """Looks like a move, even a badly read one in long notation ("52—55" = b2—b3)."""
+    """Looks like a move, even a badly read one in long notation ("52—55" = b2—b3).
+    A word with two letters no move has ("возможно": м, ж) is a comment word."""
+    if sum(c.lower() in PROSE_LETTERS for c in word) >= 2 and not re.search(r"\w[—–:-]\w", word):
+        return False  # (a long-move shape stays a move: "ФИ—Й" = Фf4—f1)
     return bool(move_code(word) or re.search(r"\w[—–:x-]\w", word))
+
+
+def fix_row_numbers(tokens):
+    """OCR may put two row numbers on one line ("33. 34. Кph2—g1 Фg3—e1+") and
+    leave the next row without one ("Кpg1—h2 Кe4—f6!"): the higher number
+    belongs to the next line. Changes the token list in place."""
+    lines = list(token_lines(tokens))
+    for s, e in lines:  # "9. 2. Сc8—b7": the "..." read as a number
+        if (e - s >= 3 and tokens[s][0] == tokens[s + 1][0] == "num"
+                and abs(tokens[s][1][0] - tokens[s + 1][1][0]) > 1
+                and tokens[s + 2][0] == "word" and row_move(tokens[s + 2][1])
+                and not any(t[0] == "num" for t in tokens[s + 2:e])):
+            tokens[s + 1] = ("junk", "...") + tokens[s + 1][2:]
+    for (s, e), (s2, e2) in reversed(list(zip(lines, lines[1:]))):
+        if (e - s >= 3 and tokens[s][0] == tokens[s + 1][0] == "num"
+                and abs(tokens[s][1][0] - tokens[s + 1][1][0]) == 1
+                and tokens[s + 2][0] == "word" and row_move(tokens[s + 2][1])
+                and tokens[s2][0] == "word" and row_move(tokens[s2][1])
+                and not any(t[0] == "num" for t in tokens[s2:e2])):
+            low, high = sorted(tokens[s:s + 2], key=lambda t: t[1][0])
+            moved = ("num", high[1], tokens[s2][2], tokens[s2][3])
+            tokens[s:e2] = [low] + tokens[s + 2:e] + [moved] + tokens[s2:e2]
+    # two rows in one line: OCR sorts the words by position, "65. Фf7—f8+ Фf8—h8+
+    # Кph6—h5 Кph5—g4" is 64. Фf7—f8+ Кph6—h5 and 65. Фf8—h8+ Кph5—g4
+    lines = list(token_lines(tokens))
+    for n in range(len(lines) - 1, 0, -1):
+        s, e = lines[n]
+        words = tokens[s + 1:e]
+        if not (tokens[s][0] == "num" and len(words) == 4
+                and all(t[0] == "word" and row_move(t[1]) and not SHORT_MOVE_RE.match(t[1]) for t in words)):
+            continue
+        before = next((tokens[ps][1][0] for ps, pe in reversed(lines[max(0, n - 30):n])
+                       if tokens[ps][0] == "num" and is_row(tokens, ps, pe)), None)
+        num = tokens[s][1][0]
+        first = num - 1 if before == num - 2 else num if before == num - 1 else None
+        if first is None:
+            continue
+        page, line = tokens[s][2], tokens[s][3]
+        tokens[s:e] = [("num", (first, False), page, line), words[0], words[2],
+                       ("num", (first + 1, False), page, line + 0.5), words[1][:3] + (line + 0.5,),
+                       words[3][:3] + (line + 0.5,)]
 
 
 def table_layout(tokens):
     """Does the book print its games in rows, one move number per line, as older
     Russian books do? Then return the token indexes of the rows, else None.
     A row number that lost its dot in OCR ("3" for "8.") becomes a number again."""
-    rows = numbers = 0
+    rows = numbers = long_rows = 0
     for start, end in token_lines(tokens):
         numbers += sum(1 for t in tokens[start:end] if t[0] == "num")
-        rows += is_row(tokens, start, end)
+        if is_row(tokens, start, end):
+            rows += 1
+            long_rows += any(LONG_ROW_RE.search(w) for w in row_words(tokens, start, end))
     if rows < 5 or rows < 0.3 * numbers:
         return None
+    # rows in long notation ("Кd4—f3+"): a "row" of only clean short moves is a
+    # comment line that starts with a move number ("13. . .Сh3, ...")
+    long_book = long_rows >= 0.8 * rows
+    fix_row_numbers(tokens)
     members = set()
+    depth = 0  # side lines open before this line
     for start, end in token_lines(tokens):
         kind, value, page, line = tokens[start]
-        bare = value.translate(OCR_DIGITS) if kind == "word" else ""
-        if bare.isdigit() and len(bare) <= 3 and 2 <= end - start <= 3 and \
-                any(move_code(t[1]) for t in tokens[start + 1:end]):
+        # "3" or "I." (a capital I for 1) at the start of a row line is a move number
+        bare = (value[:-1] if value.endswith(".") and len(value) <= 3 else value).translate(OCR_DIGITS)             if kind == "word" else ""
+        rest = tokens[start + 1:end]  # "24 — Фe4—c6 Фc7—e5": a dash is junk, not a word
+        if bare.isdigit() and len(bare) <= 3 and len(rest) <= 3 and \
+                1 <= sum(t[1] not in DASH_JUNK for t in rest) <= 2 and any(move_code(t[1]) for t in rest):
             tokens[start] = ("num", (int(bare), False), page, line)
         if tokens[start][0] == "num" and end - start <= 6:
-            for k in range(start + 1, end):  # "21. (Ce3—d2": a bracket in a row is OCR junk
-                if tokens[k][0] in ("open", "close"):
+            for k in range(start + 1, end):  # "21. (Ce3—d2": a bracket in a row is OCR junk,
+                # but not the ")" that ends an open side line ("13. g5).")
+                if tokens[k][0] == "open" or (tokens[k][0] == "close" and depth <= 0):
                     tokens[k] = ("junk",) + tokens[k][1:]
-        if is_row(tokens, start, end):
-            members.update(range(start, end))
+                elif tokens[k][0] == "close":
+                    depth -= 1
+        else:
+            for k in range(start, end):
+                depth = max(0, depth + {"open": 1, "close": -1}.get(tokens[k][0], 0))
+        if is_row(tokens, start, end) and not (
+                long_book and all(SHORT_MOVE_RE.match(w) for w in row_words(tokens, start, end))):
+            members.update(range(start, row_end(tokens, start, end)))
+    # "из-за / 13. d5." then "13. c3:d4 Сc8—g4": a one-move "row" right before a
+    # full row with the same number is the end of a comment
+    row_lines = [(s, e) for s, e in token_lines(tokens) if s in members and tokens[s][0] == "num"]
+    for (s, e), (s2, e2) in zip(row_lines, row_lines[1:]):
+        if (tokens[s][1] == tokens[s2][1] and len(row_words(tokens, s, e)) == 1
+                and len(row_words(tokens, s2, e2)) == 2):
+            members.difference_update(range(s, e))
     return members
+
+
+DASH_JUNK = {"—", "–", "-", "_", "~"}
+LONG_PAIR_RE = re.compile(r"[a-hасе][1-8][—–:-][a-hасе1-8]")  # from-square, dash, to-square
+LONG_ROW_RE = re.compile(r"\w\S?[—–:x-]\S|^[0OО]")  # long notation, or castling
+# short notation, also OCR forms ("Фа4.", "Cgb.") and short captures ("К:77!" = К:f7!)
+SHORT_MOVE_RE = re.compile(r"^(?:(?:Кр|Kp|[КФЛСKQRBNC®])?[a-hасе][1-8bбdзЗтТlIi|]|(?:Кр|Kp|[КФЛСKQRBNC®])[БбВв][1-8]|(?:Кр|Kp|[КФЛСKQRBNC®])[:x]\S\S)[+#!?.]*$")
+
+
+def row_words(tokens, start, end):
+    return [t[1] for t in tokens[start + 1:row_end(tokens, start, end)]
+            if t[0] == "word" and row_move(t[1])]
+
+
+def row_like_lines(tokens, rows):
+    """Lines that are table rows, or were meant to be: rows, lone move numbers
+    ("35." whose moves slipped to another line) and short lines of only moves
+    and junk. Comment lines that start with a number are not.
+    Yields (page, number, start, end, is_row)."""
+    for start, end in token_lines(tokens):
+        head = tokens[start]
+        if head[0] != "num":
+            continue
+        words = [t for t in tokens[start + 1:end] if t[0] == "word"]
+        # a broken row has only moves and short junk; a comment line that starts
+        # with a number has real words ("23. c4 с последующим g4:f5")
+        broken = len(words) <= 6 and all(row_move(t[1]) or len(t[1].strip(".")) <= 3 for t in words)
+        # a row has one move number ("36. Се5+ Кpg6 37. Лg7+" is a comment)
+        broken = broken and not any(t[0] == "num" for t in tokens[start + 1:end])
+        if start in rows or not words or broken:
+            _, (num, _), page, _ = head
+            yield page, num, start, end, start in rows
+
+
+def row_debris(tokens, start, end):
+    """A line with only move numbers, moves and short junk, but no real row:
+    rows the first OCR reading mixed up ("17. 16. Фd3—e3 Кg5—e6")."""
+    words = [t for t in tokens[start:end] if t[0] == "word"]
+    return (any(row_move(t[1]) for t in words)
+            and all(t[0] in ("num", "junk") or (t[0] == "word" and (row_move(t[1]) or len(t[1].strip(".")) <= 3))
+                    for t in tokens[start:end]))
+
+
+def merge_second_reading(tokens, alt_tokens):
+    """Table books are read twice (OCR at two resolutions). Each reading damages
+    other rows. Every row of the first reading gets the most similar row of the
+    second reading with the same page and move number; its words are other
+    readings of the same moves. A row the first reading lost or mixed up ("35."
+    alone) is filled from a second-reading row no real row took. Second-reading
+    rows that no line took, between two rows both readings have, replace the
+    mixed-up lines there. Returns (tokens, {index: [other readings]})."""
+    alt_rows = table_layout(alt_tokens) or set()
+    second = {}  # (page, number) -> [(order, move words)]
+    alt_order = []  # second-reading rows in reading order: (page, number, move words)
+    for page, num, start, end, is_row in row_like_lines(alt_tokens, alt_rows):
+        if is_row:
+            words = [t[1] for t in alt_tokens[start + 1:end] if t[0] == "word" and row_move(t[1])]
+            second.setdefault((page, num), []).append((len(alt_order), words))
+            alt_order.append((page, num, words))
+    rows = table_layout(tokens) or set()
+    lines = list(row_like_lines(tokens, rows))
+    used, chosen, anchor = set(), {}, {}  # anchor: line start -> order of its second-reading row
+    # rows with the same number on a page ("28. Фg5—g7!" and "28. ... Лe8—e7"):
+    # when both readings have as many of them, they come in the same order
+    own_same = {}
+    for page, num, start, end, is_row in lines:
+        if is_row:
+            own_same.setdefault((page, num), []).append(start)
+    for key, starts_same in own_same.items():
+        alts_same = second.get(key, [])
+        if len(starts_same) > 1 and len(starts_same) == len(alts_same):
+            for start, (order, words) in zip(starts_same, alts_same):
+                used.add(order)
+                chosen[start] = words
+                anchor[start] = order
+    # first the real rows take the most similar second-reading row ...
+    for page, num, start, end, is_row in lines:
+        if not is_row or start in chosen:
+            continue
+        # compare OCR shapes: "45:c4" and "dd:с4" (Cyrillic с) are the same move d5:c4
+        own = " ".join(shape(t[1]) for t in tokens[start + 1:end] if t[0] == "word" and row_move(t[1]))
+        options = [(difflib.SequenceMatcher(None, own, " ".join(map(shape, words))).ratio(), -order, order)
+                   for order, words in second.get((page, num), []) if order not in used]
+        if options:
+            score, _, order = max(options)
+            if score >= 0.4:
+                used.add(order)
+                chosen[start] = alt_order[order][2]
+                anchor[start] = order
+    # ... then a lost or mixed-up row may take a second-reading row that is left
+    for page, num, start, end, is_row in lines:
+        if is_row:
+            continue
+        for order, words in second.get((page, num), []):
+            if order not in used and words:
+                used.add(order)
+                chosen[start] = words
+                anchor[start] = order
+                break
+    # ... and rows no line took replace the mixed-up lines right after the row before
+    all_lines = list(token_lines(tokens))
+    position = {start: n for n, (start, _) in enumerate(all_lines)}
+    anchored = sorted((position[start], order) for start, order in anchor.items())
+    replace, drop, insert = {}, set(), {}
+    for (a_line, a_order), (b_line, b_order) in zip(anchored, anchored[1:]):
+        missing = [o for o in range(a_order + 1, b_order) if o not in used]
+        debris = []
+        for n in range(a_line + 1, b_line):
+            if not missing or all_lines[n][0] in rows or not row_debris(tokens, *all_lines[n]):
+                break
+            debris.append(all_lines[n][0])
+        if debris:
+            replace[debris[0]] = [alt_order[o] for o in missing]
+            drop.update(debris[1:])
+            used.update(missing)
+            lost_lines = [tokens[d][3] for d in debris]
+            replace[debris[0]] = list(zip(replace[debris[0]], lost_lines + [lost_lines[-1]] * len(missing)))
+        elif missing:  # the first reading lost the rows completely: add them after the row before
+            # (unless it has them under a misread number: "18. a2—a4 Сg4:f3" for 13.)
+            own_rows = [(tokens[s][1][0], " ".join(shape(t[1]) for t in tokens[s + 1:e]
+                                                   if t[0] == "word" and row_move(t[1])))
+                        for s, e in all_lines[a_line + 1:b_line] if s in rows and tokens[s][0] == "num"]
+            missing = [o for o in missing if not any(
+                one_digit_off(num, alt_order[o][1])
+                and difflib.SequenceMatcher(None, own, " ".join(map(shape, alt_order[o][2]))).ratio() >= 0.6
+                for num, own in own_rows)]
+            if missing:
+                insert[all_lines[a_line][0]] = [alt_order[o] for o in missing]
+                used.update(missing)
+    merged, alternatives = [], {}
+    starts = {start: (end, is_row) for page, num, start, end, is_row in lines}
+    # a row that gets its lost move back from the second reading ("7. 0—0" +
+    # "Кg8—f6"): the first reading put that move into the next row, drop it there
+    row_starts = sorted(start for start, (end, is_row) in starts.items() if is_row)
+    tokens = list(tokens)
+    for n, start in enumerate(row_starts[:-1]):
+        other, end = chosen.get(start), starts[start][0]
+        own_moves = [t for t in tokens[start + 1:end] if t[0] == "word" and row_move(t[1])]
+        if not (other and len(other) == 2 and len(own_moves) == 1 and all(LONG_ROW_RE.search(w) for w in other)):
+            continue
+        following = row_starts[n + 1]
+        movers = [k for k in range(following + 1, starts[following][0])
+                  if tokens[k][0] == "word" and row_move(tokens[k][1])]
+        for k in movers[1:]:
+            if difflib.SequenceMatcher(None, shape(tokens[k][1]), shape(other[1])).ratio() >= 0.7:
+                tokens[k] = ("junk",) + tokens[k][1:]
+                break
+    after_line = None
+    for start, end in token_lines(tokens):
+        if after_line is not None:  # rows only the second reading has, after the row before
+            before, rows_to_add = after_line
+            for k, (page, num, words) in enumerate(rows_to_add, 1):
+                line = before + k / 100
+                merged.append(("num", (num, False), page, line))
+                merged.extend(("word", w, page, line) for w in words)
+            after_line = None
+        if start in insert:
+            after_line = (tokens[start][3], insert[start])
+        if start in drop:
+            continue
+        if start in replace:
+            for k, ((page, num, words), line) in enumerate(replace[start]):
+                if k and line == replace[start][k - 1][1]:
+                    line += k / 100  # more rows than lost lines: each row its own line
+                merged.append(("num", (num, False), page, line))
+                merged.extend(("word", w, page, line) for w in words)
+            continue
+        other = chosen.get(start)
+        if other is None:
+            merged.extend(tokens[start:end])
+            continue
+        head = tokens[start]
+        _, _, page, line = head
+        own_moves = [t for t in tokens[start + 1:end] if t[0] == "word" and row_move(t[1])]
+        if starts[start][1] and len(other) == 2 and len(own_moves) in (1, 3, 4) and \
+                all(LONG_ROW_RE.search(w) for w in other) and \
+                max(difflib.SequenceMatcher(None, shape(own_moves[0][1]), shape(w)).ratio()
+                    for w in other[:1 if len(own_moves) > 1 else 2]) >= 0.5:  # (the lost word may be White's)
+            # the first reading lost a move of this row ("13. Фd4—d1") or mixed in
+            # parts of the next row; the second reading has the row whole
+            merged.append(head)
+            merged.extend(t for t in tokens[start + 1:end] if t[0] in ("open", "junk"))
+            merged.extend(("word", w, page, line) for w in other)
+            merged.extend(t for t in tokens[start + 1:end] if t[0] == "close")
+            continue
+        if starts[start][1]:  # a row in both readings: keep both readings of each move
+            pairs = other if len(other) == len(own_moves) else []  # different splits: no safe pairs
+            merged.append(head)
+            n = 0
+            for token in tokens[start + 1:end]:
+                if token[0] == "word" and row_move(token[1]):
+                    # a much shorter word is only part of the move ("е4" for "Сf3:e4")
+                    if n < len(pairs) and pairs[n] != token[1] and \
+                            len(pairs[n]) >= 0.6 * len(token[1].strip(".!?+")):
+                        alternatives[len(merged)] = [pairs[n]]
+                    n += 1
+                merged.append(token)
+        else:  # the first reading lost or mixed up this row: take the second one
+            own = tokens[start + 1:end]  # keep its brackets: "13. g5)." ends a side line
+            merged.append(head)
+            merged.extend(t for t in own if t[0] == "open")
+            merged.extend(("word", w, page, line) for w in other)
+            merged.extend(t for t in own if t[0] == "close")
+    return merged, alternatives
 
 
 def book_to_pgn(src, dst, options, progress):
@@ -1333,15 +2122,24 @@ def book_to_pgn(src, dst, options, progress):
                 ocr_lang = detect_ocr_language(kind, src, todo, tmp, progress)
             for index, text in ocr_book(kind, src, todo, OCR_LANGS[ocr_lang], tmp, progress).items():
                 pages[index] = text
+        ocr_pages = frozenset(i + 1 for i in todo)  # real page numbers, from 1
+        tokens, lines = tokenize(pages[first:end], ocr_pages, start=first + 1)
+        alternatives = {}
+        if todo and table_layout(tokens):
+            # a table book: read the scanned pages a second time; each reading
+            # damages other rows, so every move gets two chances
+            progress(0.5, "OCR: second reading of the move rows")
+            second = ocr_book(kind, src, todo, OCR_LANGS[ocr_lang], tmp, progress, dpi=ALT_OCR_DPI)
+            alt_pages = [second.get(i, pages[i]) for i in range(first, end)]
+            alt_tokens, _ = tokenize(alt_pages, ocr_pages, start=first + 1)
+            tokens, alternatives = merge_second_reading(tokens, alt_tokens)
     pages = pages[first:end]
     if not any(page.strip() for page in pages):
         raise UserError("No text found in these pages." +
                         ("" if todo else "\nTurn on OCR to read scanned pages."))
-    ocr_pages = frozenset(i + 1 for i in todo)  # real page numbers, from 1
-    tokens, lines = tokenize(pages, ocr_pages, start=first + 1)
     langs = detect_languages(tokens) if lang == "auto" else [lang]
     finder = GameFinder(src.stem, langs, options.get("keep_text", True), lines,
-                        ocr_pages, ocr_lang if todo else "en", table_layout(tokens))
+                        ocr_pages, ocr_lang if todo else "en", table_layout(tokens), alternatives)
     try:
         games = finder.run(tokens, progress)
     except Stopped:
