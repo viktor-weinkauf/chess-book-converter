@@ -1,0 +1,774 @@
+{
+  "schema_version": 1,
+  "id": "bold-algebraic-v2-coverage-v2",
+  "bitmap_size": 32,
+  "minimum_similarity": 0.91,
+  "minimum_margin": 0.035,
+  "templates": [
+    {
+      "char": "1",
+      "width_pt": 3.36,
+      "height_pt": 6.72,
+      "bitmap": "007fffff01ffffff3fffffff3fffffff3fffffffffffffffffffffffffffffffffffffffffffffffffffffff001fffff001fffff001fffff001fffff001fffff001fffff001fffff001fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff001fffff000001ff",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          103,
+          308,
+          117,
+          336
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 1.92,
+      "bitmap": "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffff0fffffff0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffff0fffffff00003c7f00003c7f00003c7f00003c7f0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          128,
+          328,
+          137,
+          336
+        ]
+      }
+    },
+    {
+      "char": "e",
+      "width_pt": 5.52,
+      "height_pt": 5.28,
+      "bitmap": "0007f800003fff80003fff8001ffffc00ffffff00ffffff01ffffff87ffffffe7ffffffe7ffc3ffe7ff81fff7ff81ffffffc3ffffffffffffffffffffffffffffffffffffffffffefffffffefffc0000fffc0000fffc00007ffe00081ffffff81ffffff81ffffff80ffffff80ffffff803fffff801fffff801fffff8001fffc0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          139,
+          314,
+          162,
+          336
+        ]
+      }
+    },
+    {
+      "char": "4",
+      "width_pt": 6.0,
+      "height_pt": 6.72,
+      "bitmap": "0007ffc00007ffe0000fffe0003fffe0003fffe0007fffe000ffffe000ffffe003ffffe003ffffe007fe7fe00ffc7fe00ffc7fe01ff87fe07ff87fe07ff07fe07ff1ffe6ffffffffffffffffffffffffffffffffffffffff7fffffff7fffffff0001ffe00001ffe00001ffe00001ffe00001ffe00001ffe00001ffe000007fc0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          163,
+          308,
+          188,
+          336
+        ]
+      }
+    },
+    {
+      "char": "c",
+      "width_pt": 4.56,
+      "height_pt": 5.28,
+      "bitmap": "00006000003ffffc003ffffc00fffffc07ffffff07ffffff1fffffff1fffffff1fffffff3fffffff3ffffcff3ffffcffffff8000ffff8000ffff8000fffe0000fffe0000fffe0000fffe0000fffe0000ffff8000ffff80003fffec7c3fffffff3fffffff3fffffff1fffffff1fffffff07fffffc00fffffc00fffffc000ffffc",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          202,
+          314,
+          221,
+          336
+        ]
+      }
+    },
+    {
+      "char": "6",
+      "width_pt": 5.76,
+      "height_pt": 6.96,
+      "bitmap": "001f8000001fff80007fff0000fffe0001fff80001fff80001fff00007fff0000fffe0000fff80000fff80001fff1f001fffffe07ffffff87ffffff87ffffffe7ffffffefffffffffff0fffffff01ffffff00ffffff00ffffff01ffffff87ffffffffffe7ffffffe1ffffff81ffffff80ffffff007ffffe000ffff0000078000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          223,
+          308,
+          247,
+          337
+        ]
+      }
+    },
+    {
+      "char": "2",
+      "width_pt": 5.76,
+      "height_pt": 6.72,
+      "bitmap": "001ee0000fffff801ffffff01ffffff81ffffff81ffffffe7ffffffe1fe7ffff1e007fff00007fff00007ffe00007ffe00007ffe0001fffe0001fff80007fff8000ffff0001fffe0007fff0000ffff0000ffff0001fffe0007fff0000ffff0007ffff8707ffffffefffffffe7ffffffe7ffffffefffffffe7ffffffe7ffffffe",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          262,
+          308,
+          286,
+          336
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 1.92,
+      "bitmap": "0ffffff00ffffff00ffffff00ffffff0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffff0fffffff0fffffff",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          290,
+          328,
+          299,
+          336
+        ]
+      }
+    },
+    {
+      "char": "b",
+      "width_pt": 5.76,
+      "height_pt": 6.96,
+      "bitmap": "070000007ff00000fff00000fff000007ff000007ff000007ff000007ff000007ffff8007fffff807ffffff07ffffff87ffffffe7ffffffe7fffffff7ff01fff7ff01fff7ff00ffffff007fffff007fffff007fffff007fffff80fff7ff80fff7ffffffe7ffffffe7ffffffe7ffffffefffffff8fffffff07ff7ffe018007e00",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          302,
+          308,
+          326,
+          337
+        ]
+      }
+    },
+    {
+      "char": "3",
+      "width_pt": 5.52,
+      "height_pt": 6.72,
+      "bitmap": "0fffff001fffffc01ffffff81ffffffe1ffffffe1ffffffe1ffffffe00007fff00007ffe00007ffe0003fffe03fffff803fffff803fffff003ffffc00fffffc00ffffff003fffff80103fffe00003fff00003fff00001fff00003fff70007ffffffffffffffffffefffffffe7ffffff87ffffff87ffffff07fffff8001fffc00",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          328,
+          309,
+          351,
+          337
+        ]
+      }
+    },
+    {
+      "char": "?",
+      "width_pt": 5.04,
+      "height_pt": 6.72,
+      "bitmap": "1fffff003fffffe0fffffff8fffffffcfffffffcfffffffcfffffffcfc03ffff0001ffff00007ffc0001fffc000ffffc000ffffc000ffff8001fffe0007fffc0007fff0000fffe0000fff80000fff80000fff80000fff800007f800000fff80000fff80000fff80000fff80000fff80000fff80000fff80000fff800007e0000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          353,
+          309,
+          374,
+          337
+        ]
+      }
+    },
+    {
+      "char": "!",
+      "width_pt": 2.4,
+      "height_pt": 6.72,
+      "bitmap": "1ffffff81fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1ffffff8fffffff8fffffff8fffffff8fffffff81fffffffffffffffffffffffffffffff1ffffff81ffffff81ffffff800000000000000001ffffff8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff1fffffc0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          375,
+          309,
+          385,
+          337
+        ]
+      }
+    },
+    {
+      "char": "9",
+      "width_pt": 6.0,
+      "height_pt": 6.72,
+      "bitmap": "003ffe0003ffffc007ffffe00ffffff80ffffff81ffffff87ffffffe7ffe3ffe7ff81ffefff80ffffff80ffffff80ffefff80ffefffc1ffefffffffe7fffdffe7fffbffe1ffffff80ffffff803fe7ff803fe7ff80001fff00003fff00003ffe00007ffe0000fffc0003fff00003fff00003fff00007ffe00007ffe00007ff000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          827,
+          311,
+          852,
+          339
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 2.16,
+      "bitmap": "00000070000000700000007000000070ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0ffffff00ffffff00ffffff00ffffff0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          855,
+          330,
+          864,
+          339
+        ]
+      }
+    },
+    {
+      "char": "0",
+      "width_pt": 6.0,
+      "height_pt": 6.96,
+      "bitmap": "003ffc0000ffff0007ffffe00ffffff01ffffff81ffffff81ffffff81ffffff87ffc3ffe7ff81ffe7ff80ffe7ff00ffefff00ffefff00ffefff00ffefff00ffffff00ffffff00ffffff00ffffff01fff7ff81fff7ff81ffe7ffc1ffe1ffe7ffe1ffffff80ffffff80ffffff00ffffff007ffffe003ffffc0007ffe000001c000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          867,
+          311,
+          892,
+          340
+        ]
+      }
+    },
+    {
+      "char": "d",
+      "width_pt": 5.76,
+      "height_pt": 6.72,
+      "bitmap": "000007ff000007ff000007ff000007ff000007ff000007ff00000fff000fffff00ffffff0fffffff0fffffff1fffffff1fffffff7fffffff7fff1ffffff80ffffff007fffff00fffffe00fffffe007ffffe007ffffe00ffffff00ffffff01fffffffffff7fffffff7fffffff1fffffff1fffffff0fffffff07fff7ff00ff80e0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          985,
+          312,
+          1009,
+          340
+        ]
+      }
+    },
+    {
+      "char": "0",
+      "width_pt": 6.0,
+      "height_pt": 6.72,
+      "bitmap": "000ff00000ffff0003ffffc00fffffe00fffffe01ffffff01ffffff81ffffff87ffc3ff87ff81ffe7ff81ffefff81ffefff81ffe7ff00ffffff00ffffff00ffefff00ffefff00ffefff00ffefff00ffefff00ffe7ff81ffe7ff81ffe7ffc3ffe7ffffff81ffffff81ffffff00fffffe00fffffe007ffffc003ffff00007ffe00",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          1085,
+          312,
+          1110,
+          340
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 2.16,
+      "bitmap": "0003f8000003f8000003f8000003f8000fffffff0fffffff0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffff0fffffff0fffffff",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          1113,
+          331,
+          1122,
+          340
+        ]
+      }
+    },
+    {
+      "char": "a",
+      "width_pt": 5.52,
+      "height_pt": 5.28,
+      "bitmap": "001fff8003fffff803fffff80ffffff80ffffffe0ffffffe0fffffff0ffdffff0ffdffff03001fff00003fff00003fff0007ffff01ffffff01ffffff0fffffff1fffffff7fffffff7fffffff7fff87ff7ffc07ff7ffc07fffffc1fff7ffe1fff7ffe1fff7fffffff1fffffff1fffffff1fffffff03ffc7ff03ffc7ff00ff8000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          1224,
+          319,
+          1247,
+          341
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.4,
+      "height_pt": 1.68,
+      "bitmap": "1fffffff1fffffff1fffffff1fffffff1fffffff1ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff8fffffff8fffffff8fffffff8fffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff81ffffff8",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          1276,
+          333,
+          1286,
+          340
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.4,
+      "height_pt": 1.92,
+      "bitmap": "1ffffff81ffffff81ffffff81ffffff81fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          504,
+          376,
+          514,
+          384
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 2.16,
+      "bitmap": "0fffff800fffff800fffff800fffff80ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00003f8000003f8000003f8000003f80",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          519,
+          376,
+          528,
+          385
+        ]
+      }
+    },
+    {
+      "char": "5",
+      "width_pt": 5.76,
+      "height_pt": 6.72,
+      "bitmap": "1ffffff07ffffff87ffffff87ffffff87ffffff87ffffff87ffffff87ffffff07ffe00007ffe00007ffe00007fffe0007fffe0007fffff007fffffe07ffffff07ffffff87ffffffe0007fffe0000fffe0000fffe0000ffff0000ffff7001fffeff7ffffefffffff8fffffff87ffffff07ffffff07fffffe07fffff000ffff000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          575,
+          357,
+          599,
+          385
+        ]
+      }
+    },
+    {
+      "char": "5",
+      "width_pt": 5.28,
+      "height_pt": 6.72,
+      "bitmap": "7ff80270fffffffefffffffefffffffefffffffefffffffefffffffefffffffefffe0000fffe0000fffe0000fffe0000fffe0000fffffe00fffffff0fffffff8fffffffefffffffe7007fffe0000ffff0000ffff0000ffff0000ffffe001ffffffbffffefffffffefffffff8fffffff0fffffff0ffffffc0fffffe007ffffc00",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          145,
+          1328,
+          167,
+          1356
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 2.16,
+      "bitmap": "0fffff800fffff800fffff800fffff80ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffff0fffffff01fffff001fffff001fffff001fffff0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          171,
+          1347,
+          180,
+          1356
+        ]
+      }
+    },
+    {
+      "char": "7",
+      "width_pt": 5.52,
+      "height_pt": 6.72,
+      "bitmap": "fffffffeffffffffffffffffffffffffffffffffffffffffffffffff7fffffff0001fffe0001fffe0001fff80003fff80003fff80003fff00007fff0001fffc0001fffc0003fffc0003fff8000ffff8000ffff8000ffff0001ffff0001fffc0003fffc000ffff8000ffff8000fffe0000fffe0001fffe0001fffc00001000000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          255,
+          1746,
+          278,
+          1774
+        ]
+      }
+    },
+    {
+      "char": "!",
+      "width_pt": 2.4,
+      "height_pt": 6.72,
+      "bitmap": "1ffffff81fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1ffffff8fffffff8fffffff8fffffff8fffffff81fffffffffffffffffffffffffffffff1ffffff81ffffff81ffffff800000000000000001ffffc00fffffff8fffffff8fffffff8fffffffffffffffffffffffffffffff81ffffff8",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          379,
+          1745,
+          389,
+          1773
+        ]
+      }
+    },
+    {
+      "char": "8",
+      "width_pt": 6.0,
+      "height_pt": 6.96,
+      "bitmap": "003ffc0003ffffc007ffffe00ffffff01ffffff81ffffff81ffffffe7ffffffe7ffc1ffe7ff81ffe7ff81ffe1ffc1ffe1ffffff80ffffff007fffff007ffffe007ffffe00ffffff81ffffffe7ffe3ffe7ff80ffffff80ffffff80ffffffc1fff7fffffff7fffffff7ffffffe7ffffffe1ffffff80ffffff003ffffc00007f000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          501,
+          1745,
+          526,
+          1774
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 2.16,
+      "bitmap": "0ffffff00ffffff00ffffff00ffffff0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff01e0000001e0000001e0000001e00000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          529,
+          1765,
+          538,
+          1774
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 2.16,
+      "bitmap": "0ffff8000ffff8000ffff8000ffff800fffffff0fffffff0fffffff0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff01e0000001e0000001e0000001e00000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          620,
+          1765,
+          629,
+          1774
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 1.92,
+      "bitmap": "fffffff0fffffff0fffffff0fffffff0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff00ffffff00ffffff00ffffff00ffffff0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          878,
+          1810,
+          887,
+          1818
+        ]
+      }
+    },
+    {
+      "char": "h",
+      "width_pt": 5.76,
+      "height_pt": 6.48,
+      "bitmap": "fff00000fff00000fff00000fff00000fff00000fff00000fff08000fff1ffe0fff7fff8fffffffefffffffefffffffeffffffffffffffffffffffffffff1fffffff1ffffff80ffffff00ffffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007fffff007ff7ff000fe",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          916,
+          1791,
+          940,
+          1818
+        ]
+      }
+    },
+    {
+      "char": "!",
+      "width_pt": 2.16,
+      "height_pt": 6.48,
+      "bitmap": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffffffffffffffffffffffffffff0fffffff0fffffff0fffffffffffffffffffffff0fffffff0fffffff0fffffff00000000000000000000000001ffffff0fffffff0fffffffffffffffffffffffffffffffffffffffffffffff0fffffff",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          970,
+          1791,
+          979,
+          1818
+        ]
+      }
+    },
+    {
+      "char": "f",
+      "width_pt": 4.08,
+      "height_pt": 6.96,
+      "bitmap": "0001ffc000fffffc00ffffff03ffffff03ffffff03ffffff03ffffff03fffffc03fffe003ffffff0fffffffcfffffffcfffffffcfffffffc3ffffff00ffffe000ffffe0003fffe000ffffe000ffffe0003fffe0003fffe0003fffe0003fffe000ffffe0003fffe0003fffe0003fffe0003fffe000ffffe0003fffe0000607800",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          1137,
+          1883,
+          1154,
+          1912
+        ]
+      }
+    },
+    {
+      "char": "!",
+      "width_pt": 2.16,
+      "height_pt": 6.48,
+      "bitmap": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffffffffffffffffffffffffffff0fffffff0fffffff0fffffffffffffffffffffff0fffffff0fffffff0fffffff000000000000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          1184,
+          1884,
+          1193,
+          1911
+        ]
+      }
+    },
+    {
+      "char": "1",
+      "width_pt": 3.36,
+      "height_pt": 6.48,
+      "bitmap": "001ffffc01ffffff07ffffff07ffffff3ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe7fffff007fffff007ffffc007fffff007fffff007ffffc007fffff007fffff007fffff007fffff007fffff007fffff007fffff007ffffc007fffff007fffff007fffff007fffff007fffff001fffff",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          1297,
+          1884,
+          1311,
+          1911
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 1.92,
+      "height_pt": 2.16,
+      "bitmap": "0ffffff00ffffff00ffffff00ffffff0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0f00ff000f00ff000f00ff000f00ff00",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          1350,
+          1903,
+          1358,
+          1912
+        ]
+      }
+    },
+    {
+      "char": "g",
+      "width_pt": 6.0,
+      "height_pt": 7.2,
+      "bitmap": "000ffff000ffffff07ffffff0fffffff1fffffff7fffffff7fffffff7ffc0fff7ffc0ffffff80ffffff00ffffff00ffefff00ffffff00ffffff81fff7ffdffff7fffffff1fffffff0fffffff0fffffff03ffffff00ff8fff00000fff07001fff07001fff0ff83fff0fffffff0ffffffe0ffffffe0ffffff807fffff0003fff00",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          539,
+          875,
+          564,
+          905
+        ]
+      }
+    },
+    {
+      "char": "3",
+      "width_pt": 5.52,
+      "height_pt": 6.96,
+      "bitmap": "03fe00001fffff807fffffc07ffffff87ffffff87ffffff87ffffffe7ffffffe1001fffe00007ffe0001fffe03fffff80ffffff80ffffff00fffff800ffffff00ffffff00ffffff003fffffe0001fffe00003ffe00003fff60007fffff1ffffffffffffefffffffefffffff8fffffff8fffffff07fffffc07ffffc0000060000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          568,
+          868,
+          591,
+          897
+        ]
+      }
+    },
+    {
+      "char": "-",
+      "width_pt": 1.68,
+      "height_pt": 1.44,
+      "bitmap": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          893,
+          325,
+          900,
+          331
+        ]
+      }
+    },
+    {
+      "char": ":",
+      "width_pt": 2.16,
+      "height_pt": 5.04,
+      "bitmap": "0ffffff00ffffff0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0000000000000000000000000000000000000000000000000fffff800fffff80ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff01fffff001fffff0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          880,
+          1380,
+          889,
+          1401
+        ]
+      }
+    },
+    {
+      "char": ":",
+      "width_pt": 2.4,
+      "height_pt": 5.04,
+      "bitmap": "03fffff803fffff81fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff1fffffff03ffffff00000000000000000000000000000000000000000000000000000000000000001ffffff81fffffff1fffffff1fffffff1fffffff1fffffffffffffffffffffffffffffff1fffffff1fffe0001fffe000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          924,
+          1472,
+          934,
+          1493
+        ]
+      }
+    },
+    {
+      "char": "+",
+      "width_pt": 6.24,
+      "height_pt": 6.0,
+      "bitmap": "000380000003c0000003c0000003c0000003c0000003c0000003c0000003c0000003c0000003c0000003c0000003c0000003c0000003c000ffffffffffffffffffffffffffffffff0003c0000003c0000003c0000003c0000003c000000380000003800000038000000380000003c0000003c0000003c0000003c00000038000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 14,
+        "dpi": 300,
+        "bbox_pixels": [
+          906,
+          264,
+          932,
+          289
+        ]
+      }
+    },
+    {
+      "char": ".",
+      "width_pt": 2.16,
+      "height_pt": 2.16,
+      "bitmap": "01e0000001e0000001e0000001e00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffff0fffffffffffffffffffffffffffffffffffffff0fffffff0fffffff0fffffff0000007f0000007f0000007f0000007f",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 26,
+        "dpi": 300,
+        "bbox_pixels": [
+          837,
+          936,
+          846,
+          945
+        ]
+      }
+    },
+    {
+      "char": "c",
+      "width_pt": 4.32,
+      "height_pt": 5.04,
+      "bitmap": "001ffff0001ffff001fffffc0ffffffc0ffffffc0fffffff3fffffff3fffffff3fffffffffffc000ffffc000ffff0000fffc0000fffc0000fffc0000fffc0000fffc0000fffc0000fffc0000fffc0000ffff0000ffffc01fffffc01fffffffff3ffffffc3ffffffc0ffffffc07fffffc07fffffc01fffffc000ffff0000ffff0",
+      "source": {
+        "book": "Kasparov_MGP_Vol_2.djvu",
+        "file_page": 26,
+        "dpi": 300,
+        "bbox_pixels": [
+          907,
+          924,
+          925,
+          945
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+[Event "Match"]
+[Site "Amsterdam"]
+[Date "????.??.??"]
+[Round "5"]
+[White "Alekhine, Alexander"]
+[Black "Euwe, Max"]
+[Result "1/2-1/2"]
+[BookGame "152"]
+[PrintedDate "1926/27"]
+[DiagramHistory "En passant and halfmove history unknown; '-' and 0 normalize the printed continuation"]
+[SetUp "1"]
+[FEN "5nk1/1p2qrr1/p1p1p1p1/P1PpP3/1P2pPP1/4P1B1/6R1/3Q1RK1 b - - 0 36"]
+
+36... Kh8 37. Bh4 Qxh4 38. Rh2 Rh7 39. Rxh4 Rxh4 40. Qe2 Rfh7
+41. Qg2 Rh3 42. f5 gxf5 43. gxf5 Rg7 44. fxe6 Nxe6 45. Rf6 Rhg3
+46. Qxg3 Rxg3+ 47. Kh2 Rxe3 48. Rxe6 d4 49. Rg6 1/2-1/2

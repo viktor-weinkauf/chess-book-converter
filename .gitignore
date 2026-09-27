@@ -4,6 +4,12 @@
 *.djvu
 *.djv
 *.pgn
+!/tests/fixtures/*-checked-mainline.pgn
+/tests/fixtures/page18-checked-notation.txt
 
 __pycache__/
 *.pyc
+.venv/
+.tmp/
+.pytest_cache/
+*.report.json

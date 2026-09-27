@@ -14,6 +14,7 @@ import difflib
 import hashlib
 import html
 import io
+import json
 import os
 import queue
 import re
@@ -31,6 +32,13 @@ import chess.pgn
 import chess.svg
 import fitz  # PyMuPDF
 
+from conversion_quality import atomic_text, build_report, write_json, write_pgn, report_path_for
+from book_structure import GAME_HEADING, PLAYER_PAIR, clean_running_headers, section_events
+import figurine_ocr
+import coordinate_ocr
+import diagram_ocr
+import diagram_refinement
+
 APP_TITLE = "Chess Book Converter"
 DJVU_DIRS = [r"C:\Program Files (x86)\DjVuLibre", r"C:\Program Files\DjVuLibre"]
 FONT_DIR = r"C:\Windows\Fonts"
@@ -42,7 +50,7 @@ TESSDATA_DIRS = [Path(__file__).resolve().parent / "tessdata",
                  Path(r"C:\Program Files\Tesseract-OCR\tessdata")]
 OCR_DPI = 300
 ALT_OCR_DPI = 400  # table books are read a second time: rows the first reading damaged
-OCR_CACHE_VERSION = 5  # raise when OCR or page layout changes, so old cached pages are not used
+OCR_CACHE_VERSION = 21  # consume split square fragments only once after visual repair
 OCR_LANGS = {"en": "eng", "ru": "rus+eng", "de": "deu+eng"}
 # Pages are read in parallel, one thread each: more workers than this did not help
 OCR_WORKERS = max(1, min(6, (os.cpu_count() or 3) // 3))
@@ -56,13 +64,18 @@ class Stopped(UserError):
     """The user pressed Stop."""
 
 
+class ReviewRequired(UserError):
+    """Strict conversion found issues. The report is saved, the PGN is not replaced."""
+
+
 # ---------------------------------------------------------------- DjVuLibre
 
 def djvu_tool(name):
     found = shutil.which(name)
     if found:
         return found
-    for folder in DJVU_DIRS:
+    folders = ([os.environ["CHESS_CONVERTER_DJVU"]] if os.environ.get("CHESS_CONVERTER_DJVU") else []) + DJVU_DIRS
+    for folder in folders:
         exe = Path(folder) / f"{name}.exe"
         if exe.exists():
             return str(exe)
@@ -100,6 +113,26 @@ def read_book_pages(path, tmp, progress):
 
 
 # ---------------------------------------------------------------- OCR
+
+def automatic_ocr_pages(path, pages, first, end):
+    """Include damaged text and scans with a small header/page-number layer."""
+    todo = set()
+    for i in range(first, end):
+        text = pages[i].strip()
+        damaged = sum(c == "\ufffd" or "\ue000" <= c <= "\uf8ff" for c in text)
+        if not text or (damaged >= 3 and damaged / len(text) > 0.05):
+            todo.add(i)
+    if path.suffix.lower() == ".pdf":
+        with fitz.open(path) as doc:
+            for i in range(first, end):
+                if i in todo or len(pages[i].strip()) > 80:
+                    continue
+                page = doc[i]
+                # A large scanned page with only a page number is not a usable text layer.
+                if any((fitz.Rect(info["bbox"]) & page.rect).get_area() >= page.rect.get_area() * 0.5
+                       for info in page.get_image_info()):
+                    todo.add(i)
+    return sorted(todo)
 
 def find_tessdata(lang):
     for folder in TESSDATA_DIRS:
@@ -155,14 +188,25 @@ def column_gap(words, width):
         key = (len(words) - left - right, abs(x - width / 2))  # words in the band, then centre
         if best is None or key < best[0]:
             best = (key, x)
-    if best is None or best[0][0] > 0.05 * len(words):
+    if best is None:
         return None
     gap = best[1]
     lines = visual_lines(words)
-    both = sum(1 for line in lines if line[0][2] <= gap - 4 and line[-1][0] >= gap + 4
-               and not any(crosses(w, gap, 4) for w in line))
-    if both < max(5, 0.3 * len(lines)):
-        return None  # most lines must have text on both sides of the gap
+    paired = [line[0][2] <= gap - 4 and line[-1][0] >= gap + 4
+              and not any(crosses(w, gap, 4) for w in line) for line in lines]
+    both = sum(paired)
+    run = longest = 0
+    for pair in paired:
+        run = run + 1 if pair else 0
+        longest = max(longest, run)
+    mixed_block = both >= 8 and longest >= 5
+    if both < max(5, 0.3 * len(lines)) and not mixed_block:
+        return None
+    # Full-width introductions and epilogues can cross the gutter on the SAME
+    # page as two-column game text. word_regions keeps those bands full-width;
+    # rejecting the entire page here interleaves both columns and loses moves.
+    if best[0][0] > 0.05 * len(words) and both < max(8, 0.35 * len(lines)) and not mixed_block:
+        return None
     return gap
 
 
@@ -173,8 +217,8 @@ def word_regions(words, gap, width):
     regions, column = [], []
 
     def flush():
-        if len(column) == 1:  # one line alone, like "White        Black": keep it whole
-            regions.append(fitz.Rect(0, column[0][0], width, column[0][1]))
+        if 0 < len(column) < 3:  # short full-width bands can have a coincidental gap
+            regions.append(fitz.Rect(0, column[0][0], width, column[-1][1]))
         elif column:
             top, bottom = column[0][0], column[-1][1]
             regions.append(fitz.Rect(0, top, gap, bottom))
@@ -184,6 +228,7 @@ def word_regions(words, gap, width):
     for line in visual_lines(words):
         top = max(0, min(w[1] for w in line) - 1)
         bottom = max(w[3] for w in line) + 1
+        # A heading confined to one column must not interrupt the other column.
         if any(crosses(w, gap) for w in line):
             flush()
             regions.append(fitz.Rect(0, top, width, bottom))
@@ -193,34 +238,98 @@ def word_regions(words, gap, width):
     return regions
 
 
-def ocr_text(page, lang, tessdata, dpi):
+def ocr_text(page, lang, tessdata, dpi, figurines="auto", evidence=None, coordinates="auto"):
     """OCR a page. OCR mixes two columns line by line, so a two-column page is
     cut up, stacked into one column and read again."""
+    glyphs = figurine_ocr.detect(page, dpi) if figurines == "auto" else []
+    if evidence is not None:
+        evidence.extend(glyphs)
+    boards = diagram_ocr.detect(page, dpi)
+    if evidence is not None:
+        evidence.extend(boards)
+    if not boards:
+        return ocr_layout(page, lang, tessdata, dpi, glyphs, coordinates, evidence)
+    # Diagrams are images, not prose. Mask them on a disposable page only;
+    # retain an explicit marker in reading order, even for unresolved boards.
+    with fitz.open() as doc:
+        copy = doc.new_page(width=page.rect.width, height=page.rect.height)
+        copy.show_pdf_page(copy.rect, page.parent, page.number)
+        markers = []
+        for n, board in enumerate(boards):
+            box = fitz.Rect(board["bbox"])
+            copy.draw_rect(box + (-1,-1,1,1), color=None, fill=(1,1,1), overlay=True)
+            marker = f"__BOARD_{n}__"
+            board["marker"] = marker
+            markers.append((box.x0+2,box.y0,box.x0+10,box.y0+8,marker,0,0,0))
+        return ocr_layout(copy, lang, tessdata, dpi, glyphs, coordinates, evidence, markers)
+
+
+def ocr_layout(page, lang, tessdata, dpi, glyphs, coordinates="auto", evidence=None, markers=()):
     textpage = page.get_textpage_ocr(language=lang, dpi=dpi, full=True, tessdata=tessdata)
     words = page.get_text("words", textpage=textpage)
     width = page.rect.width
     gap = column_gap(words, width)
     if gap is None:
-        return page.get_text(textpage=textpage)  # one column: OCR's own line order
-    regions = word_regions(words, gap, width)
+        if not glyphs and coordinates == "off" and not markers:
+            return page.get_text(textpage=textpage)
+        restored = figurine_ocr.repair_words(page, words, glyphs, lang, tessdata, dpi) if glyphs else words
+        readings = []
+        if coordinates == "auto":
+            restored = coordinate_ocr.read_words(page, restored, glyphs, dpi, readings)
+        text = lines_text(list(restored) + list(markers), width, readings)
+        if evidence is not None:
+            evidence.extend(readings)
+        return text
+    regions = word_regions(list(words) + list(markers), gap, width)
     spacing = 8
     with fitz.open() as doc:
         stacked = doc.new_page(width=width, height=sum(r.height + spacing for r in regions))
-        y = 0
+        y, moved_glyphs, offsets, moved_markers = 0, [], [], []
         for region in regions:
             stacked.show_pdf_page(fitz.Rect(region.x0, y, region.x1, y + region.height),
                                   page.parent, page.number, clip=region)
+            offsets.append((region.x0, region.x1, y, y + region.height, region.y0 - y))
+            for marker in markers:
+                if region.contains(fitz.Point((marker[0]+marker[2])/2, (marker[1]+marker[3])/2)):
+                    moved_markers.append((marker[0], marker[1]-region.y0+y, marker[2],
+                                          marker[3]-region.y0+y, *marker[4:]))
+            for glyph_index, glyph in enumerate(glyphs):
+                box = fitz.Rect(glyph["bbox"])
+                if region.contains((box.tl + box.br) / 2):
+                    moved_glyphs.append({**glyph, "index": glyph_index, "bbox": [box.x0, box.y0 - region.y0 + y,
+                                                          box.x1, box.y1 - region.y0 + y]})
             y += region.height + spacing
         textpage = stacked.get_textpage_ocr(language=lang, dpi=dpi, full=True, tessdata=tessdata)
-        return lines_text(stacked.get_text("words", textpage=textpage), width)
+        restored = figurine_ocr.repair_words(stacked, stacked.get_text("words", textpage=textpage),
+                                             moved_glyphs, lang, tessdata, dpi)
+        readings = []
+        if coordinates == "auto":
+            restored = coordinate_ocr.read_words(stacked, restored, moved_glyphs, dpi, readings)
+        text = lines_text(list(restored) + moved_markers, width, readings)
+        coordinate_ocr.restore_coordinates(readings, offsets)
+        if evidence is not None:
+            evidence.extend(readings)
+        for moved in moved_glyphs:
+            if "replacement" in moved:
+                glyphs[moved["index"]].update({k: moved[k] for k in (
+                    "original_word", "replacement", "alternate_word", "alternate_reading",
+                    "used_alternate", "conflicting_readings", "alternate_rejected") if k in moved})
+                if "consumed_words" in moved:
+                    dy = glyphs[moved["index"]]["bbox"][1] - moved["bbox"][1]
+                    glyphs[moved["index"]]["consumed_words"] = [
+                        {"word": w["word"], "bbox": [w["bbox"][0],w["bbox"][1]+dy,
+                                                     w["bbox"][2],w["bbox"][3]+dy]}
+                        for w in moved["consumed_words"]]
+        return text
 
 
 def ocr_page(job):
     """OCR one page. Runs in a worker process, so it must be a top-level function."""
-    kind, path, index, lang, tessdata, tmp, dpi = job
+    kind, path, index, lang, tessdata, tmp, dpi, figurines, coordinates = job
+    evidence = []
     if kind == "pdf":
         with fitz.open(path) as doc:
-            return index, ocr_text(doc[index], lang, tessdata, dpi)
+            return index, ocr_text(doc[index], lang, tessdata, dpi, figurines, evidence, coordinates), evidence
     image = Path(tmp) / f"ocr{index}-{dpi}.pgm"
     run_tool("ddjvu", "-format=pgm", f"-page={index + 1}", f"-scale={dpi}",
              "book.djvu", image.name, cwd=tmp)
@@ -229,21 +338,33 @@ def ocr_page(job):
         scale = 72 / dpi
         page = doc.new_page(width=pix.width * scale, height=pix.height * scale)
         page.insert_image(page.rect, pixmap=pix)
-        text = ocr_text(page, lang, tessdata, dpi)
+        text = ocr_text(page, lang, tessdata, dpi, figurines, evidence, coordinates)
     image.unlink()
-    return index, text
+    return index, text, evidence
 
 
-def lines_text(words, width):
+def lines_text(words, width, readings=None):
     """Text of OCR words, line by line. A wide gap inside a line (the "White
     Black" heading of a game) becomes " – ", so the player names are found."""
     out = []
+    by_box = {tuple(r["bbox"]): r for r in readings or []}
+    previous = None
     for line in visual_lines(words):
+        # A new indented paragraph after a completed sentence. Keep this as a
+        # blank line so parser and visual evidence share the same line numbers.
+        if (previous and re.search(r'[.!?][)»”\"]?$',previous[-1][4])
+                and 7 <= line[0][0]-previous[0][0] <= 22):
+            out.append("")
+        line_no = len(out)
+        for word in line:
+            if tuple(word[:4]) in by_box:
+                by_box[tuple(word[:4])]["line"] = line_no
         parts = [line[0][4]]
         for before, word in zip(line, line[1:]):
             parts.append((" – " if word[0] - before[2] > 0.25 * width else " ") + word[4])
         out.append("".join(parts))
-    return "\n".join(out)
+        previous = line
+    return figurine_ocr.join_symbols("\n".join(out))
 
 
 def detect_ocr_language(kind, path, indexes, tmp, progress):
@@ -251,7 +372,7 @@ def detect_ocr_language(kind, path, indexes, tmp, progress):
     step = max(1, len(indexes) // 3)
     samples = indexes[step // 2::step][:3]
     texts = ocr_book(kind, path, samples, "eng+rus+deu", tmp,
-                     lambda value, text: progress(0.06, "OCR: finding the book language"))
+                     lambda value, text: progress(0.06, "OCR: finding the book language"), figurines="off", coordinates="off")
     text = "\n".join(texts.values())
     # the move notation decides first: a Russian book may have English comments
     notation = {
@@ -272,37 +393,89 @@ def detect_ocr_language(kind, path, indexes, tmp, progress):
     return "de" if german >= 3 else "en"
 
 
-def ocr_cache(path, lang, dpi=OCR_DPI):
+@lru_cache(maxsize=16)
+def ocr_model_signature(files):
+    digest = hashlib.sha256(f"{fitz.VersionBind}:{fitz.VersionFitz}".encode())
+    for path, _, _ in files:
+        with open(path, "rb") as model:
+            for chunk in iter(lambda: model.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()[:16]
+
+
+def ocr_cache(path, lang, dpi=OCR_DPI, figurines="auto", coordinates="auto"):
     """Folder and file name start for cached OCR pages of this book: pages read
     once are not read again (after Stop, an error, or a second run)."""
-    digest = hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
-    folder = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "ChessConverter" / "ocr-cache"
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    digest = digest.hexdigest()[:24]
+    folder = Path(os.environ.get("CHESS_CONVERTER_CACHE", "")) if os.environ.get("CHESS_CONVERTER_CACHE") else (
+        Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "ChessConverter" / "ocr-cache")
     folder.mkdir(parents=True, exist_ok=True)
-    return folder, f"v{OCR_CACHE_VERSION}-{digest}-{lang.replace('+', '_')}-{dpi}"
+    profile = figurine_ocr.profile_fingerprint() if figurines == "auto" else "off"
+    letters = coordinate_ocr.profile_fingerprint() if coordinates == "auto" else "off"
+    letters += "-" + diagram_ocr.profile_fingerprint()
+    model_dir = Path(find_tessdata(lang))
+    models = [model_dir / f"{code}.traineddata" for code in lang.split("+")]
+    model_key = ocr_model_signature(tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in models))
+    return folder, f"v{OCR_CACHE_VERSION}-{digest}-{lang.replace('+', '_')}-{dpi}-{profile}-{letters}-{model_key}"
 
 
-def ocr_book(kind, path, indexes, lang, tmp, progress, dpi=OCR_DPI):
+def ocr_book(kind, path, indexes, lang, tmp, progress, dpi=OCR_DPI, figurines="auto", evidence=None, coordinates="auto"):
     """OCR many pages at once in worker processes. Returns {index: text}.
     progress() raises Stopped when the user presses Stop."""
     tessdata = find_tessdata(lang)
-    folder, name = ocr_cache(path, lang, dpi)
-    cached = lambda i: folder / f"{name}-p{i + 1}.txt"
-    texts = {i: cached(i).read_text(encoding="utf-8") for i in indexes if cached(i).exists()}
+    folder, name = ocr_cache(path, lang, dpi, figurines, coordinates)
+    cached = lambda i: folder / f"{name}-p{i + 1}.json"
+    texts = {}
+
+    def remember(index, text, glyphs):
+        texts[index] = text
+        if evidence is not None:
+            evidence.extend({**g, "page": index + 1, "dpi": dpi} for g in glyphs)
+
+    for index in indexes:
+        try:
+            data = json.loads(cached(index).read_text(encoding="utf-8"))
+            if (not isinstance(data["text"], str) or not isinstance(data["glyphs"], list)
+                    or not all(isinstance(g, dict) and (isinstance(g.get("symbol"), str)
+                               or coordinate_ocr.valid_evidence(g) or diagram_ocr.valid_evidence(g))
+                               and isinstance(g.get("bbox"), list) and len(g["bbox"]) == 4
+                               and all(isinstance(v, (int, float)) for v in g["bbox"])
+                               for g in data["glyphs"])):
+                continue
+            remember(index, data["text"], data["glyphs"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass  # interrupted/corrupted cache: regenerate this page
     done_before = len(texts)
     indexes = [i for i in indexes if i not in texts]
     if not indexes:
         return texts
     os.environ.setdefault("OMP_THREAD_LIMIT", "1")  # workers inherit it: no thread fights
-    pool = ProcessPoolExecutor(max_workers=min(OCR_WORKERS, len(indexes)))
+    # Restricted Windows environments can disallow multiprocessing named pipes.
+    # A serial fallback also makes OCR usable there without elevated permissions.
     try:
-        pending = {pool.submit(ocr_page, (kind, str(path), i, lang, tessdata, tmp, dpi)) for i in indexes}
+        pool = ProcessPoolExecutor(max_workers=min(OCR_WORKERS, len(indexes)))
+    except PermissionError:
+        pool = None
+    if pool is None:
+        for i in indexes:
+            progress(0.1 + 0.75 * len(texts) / (len(indexes) + done_before), f"OCR: page {i + 1}")
+            index, text, glyphs = ocr_page((kind, str(path), i, lang, tessdata, tmp, dpi, figurines, coordinates))
+            remember(index, text, glyphs)
+            write_json(cached(index), {"text": text, "glyphs": glyphs})
+        return texts
+    try:
+        pending = {pool.submit(ocr_page, (kind, str(path), i, lang, tessdata, tmp, dpi, figurines, coordinates)) for i in indexes}
         while pending:
             # wake up twice a second, so that Stop works at once
             done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
             for future in done:
-                index, text = future.result()
-                texts[index] = text
-                cached(index).write_text(text, encoding="utf-8")
+                index, text, glyphs = future.result()
+                remember(index, text, glyphs)
+                write_json(cached(index), {"text": text, "glyphs": glyphs})
             total = len(indexes) + done_before
             progress(0.1 + 0.75 * len(texts) / total, f"OCR: page {len(texts)} of {total}")
     except BaseException:
@@ -345,7 +518,10 @@ OCR_DOUBLE_DIGIT_RE = re.compile(r"(?<=[—–:-][a-hасе])[бb](?=[56](?:[+!?
 OCR_QUOTE_COLON_RE = re.compile(r"(\S*[1-8a-hбЗтв]) «(?=\S{0,2}\d)")
 # "d5 : e4", "7 : gb", "Cd3 :h7?": a space on either side of the colon
 # (the check sign may be read as "--" or "-+": "Фa5: с7--")
-OCR_SPACED_CAPTURE_RE = re.compile(r"(?<=\S)(?: +: *| *: +)(?=\S{1,3}[+#!?×|-]*\.?(?:\s|$))")
+OCR_SPACED_CAPTURE_RE = re.compile(
+    r"(?<!\w)((?:(?:Кр|Kp|[KQRBNКФЛСC♔♕♖♗♘])?[a-hасе][1-8])"
+    r"|Кр|Kp|[KQRBNКФЛСC♔♕♖♗♘]|\d{1,2})(?: +: *| *: +)"
+    r"(?=[a-hасе¢{][1-8ЗзбОо][+#!?×|-]*\.?(?:\s|$))")
 SPACED_CAPTURE_RE = re.compile(r"([a-hасе][1-8]|[KQRBNКФЛСКрCp]) *: +(?=[a-hасе][1-8])")
 
 
@@ -378,7 +554,7 @@ def normalize_ocr(text):
     text = OCR_DOUBLE_DIGIT_RE.sub("", text)  # "Фе7—еб5" = Фe7—e5: the 5 read twice
     text = OCR_BANG_ONE_RE.sub("1", text)
     text = OCR_QUEEN_P_RE.sub("Ф", text)  # "Ped—h7" = Фe4—h7, "Pe3—g3+" = Фe3—g3+  # "Фе4—е!+" = Фe4—e1+, "Фа!-е2" = Фd1—e2
-    text = OCR_SPACED_CAPTURE_RE.sub(":", text)  # "45 : е4", "Ке4: f6+"
+    text = OCR_SPACED_CAPTURE_RE.sub(r"\1:", text)  # "45 : е4", "Ке4: f6+"
     for _ in range(3):
         for pattern in OCR_GLUED:
             text = pattern.sub(r"\1 \2" if pattern.groups == 2 else r"\1 ", text)
@@ -434,7 +610,15 @@ def ocr_number(word):
     return raw.translate(OCR_DIGITS) + match.group(2).replace(",", ".") + match.group(3)
 
 
-def tokenize(pages, ocr_pages=frozenset(), start=1):
+def split_move_evaluation(word):
+    """A glued printed evaluation is a NAG, not an OCR check-sign repair."""
+    match = re.fullmatch(r"(.+[a-hасе][1-8][!?+#]*|[a-hасе][1-8][!?+#]*)(\+-|-\+)([.,;)\]}]*)",word.translate(DASHES))
+    if match:
+        return [word[:match.end(1)],match[2]+match[3]]
+    return [word]
+
+
+def tokenize(pages, ocr_pages=frozenset(), start=1, boundaries=False):
     """Split the book into tokens: (kind, value, page, line).
     Kinds: num (value = (number, black)), word, open, close, fen, diagram.
     ocr_pages holds the page numbers whose text came from OCR; `start` is the
@@ -443,7 +627,10 @@ def tokenize(pages, ocr_pages=frozenset(), start=1):
 
     def add_words(chunk, page, line):
         ocr = page in ocr_pages
-        for word in chunk.split():
+        for word in (part for original in chunk.split() for part in split_move_evaluation(original)):
+            if re.fullmatch(r"__BOARD_\d+__", word):
+                tokens.append(("board", word, page, line))
+                continue
             if ocr:  # books use ( and [ for side lines; OCR makes { } from diagrams
                 # "{" at the ends of a word is diagram junk, inside it a misread f ("C:{3")
                 word = ocr_number(word.strip("{}").replace("{", "f").replace("}", ""))
@@ -451,6 +638,9 @@ def tokenize(pages, ocr_pages=frozenset(), start=1):
                     continue
             if word in DIAGRAM_MARKS:
                 tokens.append(("diagram", word, page, line))
+                continue
+            if re.fullmatch(r"\d{1,2}\)", word):
+                tokens.append(("list_item",word[:-1],page,line))
                 continue
             if word in DOTS and tokens and tokens[-1][0] == "num":
                 kind, (num, _), p, l = tokens[-1]
@@ -467,9 +657,11 @@ def tokenize(pages, ocr_pages=frozenset(), start=1):
                 tokens.append(("open", word[0], page, line))
                 word = word[1:]
             closes = 0
-            if word[-2:-1] in (")", "]", "}") and word[-1:] in ".!?":
-                word = word[:-1]  # "13. g5)." ends a side line and a sentence
-            while word and word[-1] in ")]},;":
+            # A book reference such as "(№77):" is prose in parentheses.
+            # Keeping its colon used to hide the closing bracket and leave
+            # every following mainline move inside a phantom variation.
+            word = re.sub(r'(?<=[)\]}])[.!?:;,»”"\']+$', '', word)
+            while word and word[-1] in ")]}":
                 closes += word[-1] in ")]}"
                 word = word[:-1]
             match = NUM_RE.match(word)
@@ -484,10 +676,13 @@ def tokenize(pages, ocr_pages=frozenset(), start=1):
         for raw in normalize_text(page).split("\n"):
             line_no = len(lines)
             lines.append(raw.strip())  # unchanged, for player names
+            if not raw.strip():
+                tokens.append(("paragraph","",page_no,line_no))
+                continue
             if raw.strip().isdigit():  # page number
                 continue
             if page_no in ocr_pages:
-                if ocr_junk(raw):
+                if ocr_junk(raw) and not re.fullmatch(r"__BOARD_\d+__",raw.strip()):
                     continue
                 raw = normalize_ocr(raw)
             pos = 0
@@ -496,7 +691,58 @@ def tokenize(pages, ocr_pages=frozenset(), start=1):
                 tokens.append(("fen", match.group(0), page_no, line_no))
                 pos = match.end()
             add_words(raw[pos:], page_no, line_no)
+    if boundaries:
+        events = section_events(lines)
+        marked, seen = [], set()
+        for token in tokens:
+            line = token[3]
+            if line in events:
+                if line not in seen:
+                    kind, value = events[line]
+                    marked.append((kind, value, token[2], line))
+                    seen.add(line)
+                continue  # the heading/credit itself is metadata, never a comment
+            marked.append(token)
+        tokens = marked
     return tokens, lines
+
+
+def visual_token_evidence(tokens, pages, first, evidence, mainline_only=True):
+    """Map an audited word to tokens only when its reading has one line match.
+
+    Header cleanup retains line counts. The mapping never searches another
+    line/page, so repeated coordinates in comments cannot inherit bold style.
+    """
+    offsets, offset = {}, 0
+    for page, text in enumerate(pages, first):
+        offsets[page] = offset
+        offset += len(normalize_text(text).split("\n"))
+    by_line = {}
+    for index, token in enumerate(tokens):
+        by_line.setdefault((token[2], token[3]), []).append(index)
+    mapped = set()
+    for record in evidence:
+        if record.get("kind") != "coordinate" or record.get("dpi") != OCR_DPI:
+            continue
+        if mainline_only and record.get("style", "bold") != "bold":
+            continue
+        page = record.get("page")
+        if page not in offsets or "line" not in record:
+            continue
+        expected, _ = tokenize([record["replacement"]], {page}, page)
+        expected = [(t[0],t[1]) for t in expected]
+        if not expected:
+            continue
+        candidates = by_line.get((page, offsets[page] + record["line"]), [])
+        matches = [candidates[i:i+len(expected)] for i in range(len(candidates)-len(expected)+1)
+                   if [(tokens[k][0],tokens[k][1]) for k in candidates[i:i+len(expected)]] == expected]
+        if len(matches) == 1:
+            selected = matches[0]
+            if record.get("reading") == "number_only":
+                selected = [k for k in selected if tokens[k][0] == "num"]
+            mapped.update(selected)
+            record["tokens"] = selected
+    return mapped
 
 
 # ---------------------------------------------------------------- Move reading
@@ -520,7 +766,7 @@ LANG_HINTS = {
 }
 CASTLE_RE = re.compile(r"^[0OОо]-[0OОо](-[0OОо])?$")
 SAN_RE = re.compile(r"^(?:[KQRBN]?[a-h]?[1-8]?[-x]?[a-h][1-8](?:=?[QRBN])?|O-O(?:-O)?)$")
-PAWN_FILES_RE = re.compile(r"^([a-h])x?([a-h])$")
+PAWN_FILES_RE = re.compile(r"^([a-h])x?([a-h])(?:=?([QRBN]))?$")
 SUFFIX_RE = re.compile(r"^(.*?)([!?+#‡†]*)$")
 MOVE_NAGS = {"!": 1, "?": 2, "!!": 3, "??": 4, "!?": 5, "?!": 6}
 NAG_TOKENS = {**MOVE_NAGS, "=": 10, "∞": 13, "⩲": 14, "+=": 14, "+/=": 14, "⩱": 15, "=+": 15,
@@ -542,13 +788,17 @@ def detect_languages(tokens):
 
 
 def to_english(core, lang):
+    # Figurines are language-independent, including a promotion suffix.
+    # Interpreting translated Latin letters as Russian would swap king/knight.
+    if any(ord(char) in FIGURINES for char in core):
+        return core.translate(FIGURINES).translate(LOOKALIKES).translate(DASHES)
     text = core.translate(FIGURINES)
     for src, dst in PIECES[lang]:
         if text.startswith(src):
             text = dst + text[len(src):]
             break
     for src, dst in PIECES[lang]:
-        if dst != "K" and re.search(rf"[18]=?{src}$", text):
+        if dst != "K" and re.search(rf"(?:[18]|[a-hасеЬь][:xх]?[a-hасеЬь])=?{re.escape(src)}$", text):
             text = text[:-len(src)] + dst
             break
     return text.translate(LOOKALIKES).translate(DASHES)
@@ -557,7 +807,7 @@ def to_english(core, lang):
 def parse_move(board, word, langs, fuzzy=False):
     """Return (move, nags) if the word is a legal move on this board.
     fuzzy: the word came from OCR, so also accept the closest legal move."""
-    core, suffix = SUFFIX_RE.match(word.rstrip(".,")).groups()
+    core, suffix = SUFFIX_RE.match(word.rstrip(".,;")).groups()
     nag = MOVE_NAGS.get(suffix.replace("+", "").replace("#", "").replace("‡", "").replace("†", ""))
     nags = [nag] if nag else []
     dashed = core.translate(DASHES)
@@ -568,16 +818,22 @@ def parse_move(board, word, langs, fuzzy=False):
         san = to_english(core, lang)
         if SAN_RE.match(san):
             try:
-                return board.parse_san(san), nags
+                move = board.parse_san(san)
+                # python-chess accepts a superfluous 'x'. In scanned books that
+                # can hide a branch attached to the wrong position.
+                if "x" in san and not board.is_capture(move):
+                    continue
+                return move, nags
             except ValueError:
                 continue
         match = PAWN_FILES_RE.match(san)
         if match:  # short pawn capture like "ed" in older books
+            promotion = chess.PIECE_SYMBOLS.index(match.group(3).lower()) if match.group(3) else None
             moves = [m for m in board.legal_moves
                      if board.piece_type_at(m.from_square) == chess.PAWN
                      and chess.square_file(m.from_square) == "abcdefgh".index(match.group(1))
                      and chess.square_file(m.to_square) == "abcdefgh".index(match.group(2))
-                     and board.is_capture(m)]
+                     and board.is_capture(m) and (promotion is None or m.promotion == promotion)]
             if len(moves) == 1:
                 return moves[0], nags
     if fuzzy:
@@ -782,25 +1038,57 @@ def ocr_score(board, move, code, langs, check):
     return score
 
 
+def printed_promotion(word, langs):
+    """An explicit pawn promotion is not a request to guess a similar move."""
+    core, _ = SUFFIX_RE.match(word.rstrip(".,;")).groups()
+    return any(re.fullmatch(r"(?:[a-h][1-8]|[a-h][1-8]?[-x]?[a-h][1-8]?)=?[QRBNK]", to_english(core, lang))
+               for lang in langs)
+
+
+def missing_promotion_piece(board, word, langs):
+    """Do not select a promotion piece using later moves when none is printed."""
+    core, _ = SUFFIX_RE.match(word.rstrip(".,;")).groups()
+    for lang in langs:
+        san = to_english(core, lang)
+        if not re.fullmatch(r"(?:[a-h][18]|[a-h][27]?[-x]?[a-h][18]?)", san):
+            continue
+        files = re.findall(r"[a-h]", san)
+        for move in board.legal_moves:
+            if (move.promotion and chess.square_file(move.to_square) == ord(files[-1])-ord('a')
+                    and (len(files) == 1 or chess.square_file(move.from_square) == ord(files[0])-ord('a'))):
+                return True
+    return False
+
+
 def candidate_moves(board, word, langs, top=4):
     """The few legal moves an OCR word may stand for, best first: (distance, move)."""
+    if printed_promotion(word, langs) or missing_promotion_piece(board, word, langs):
+        move, _ = parse_move(board, word, langs)
+        return [(0, move)] if move is not None else []
     code = move_code(word)
     if code is None:
         return []
     check = says_check(word)
+    piece = FIGURINES.get(ord(word[0])) if word else None
     scores = sorted((ocr_score(board, move, code, langs, check), i, move)
-                    for i, move in enumerate(board.legal_moves))
+                    for i, move in enumerate(board.legal_moves)
+                    if not piece or board.piece_at(move.from_square).symbol().upper() == piece)
     return [(d, m) for d, _, m in scores[:top] if d <= max(2, len(code) / 2)]
 
 
 def closest_move(board, core, langs, check=False):
     """The legal move that looks most like an OCR word, if one clearly wins:
     (move, distance), or (None, None). check: the book prints a + after it."""
+    if printed_promotion(core, langs) or missing_promotion_piece(board, core, langs):
+        move, _ = parse_move(board, core, langs)
+        return (move, 0) if move is not None else (None, None)
     code = move_code(core)
     if code is None:
         return None, None
+    piece = FIGURINES.get(ord(core[0])) if core else None
     scores = sorted((ocr_score(board, move, code, langs, check), i, move)
-                    for i, move in enumerate(board.legal_moves))
+                    for i, move in enumerate(board.legal_moves)
+                    if not piece or board.piece_at(move.from_square).symbol().upper() == piece)
     if not scores:
         return None, None
     # two characters: allow one look-alike ("93" = g3), not a free change
@@ -859,11 +1147,14 @@ class Frame:
         self.board = board
         self.expect = True    # a move may come next without a move number
         self.text = []        # book text since the last move
+        self.explicit = False # only a real opening bracket is closed by ')'
+        self.broken = False
+        self.pending_number = None
 
 
 class GameFinder:
     def __init__(self, book_name, langs, keep_text, lines, ocr_pages=frozenset(), ocr_lang="en",
-                 table=False, alternatives=None):
+                 table=False, alternatives=None, visual_tokens=None, diagram_evidence=None, verified_tokens=None):
         self.book_name = book_name
         self.langs = langs
         self.keep_text = keep_text
@@ -885,8 +1176,19 @@ class GameFinder:
         self.table = bool(table)
         self.after_number = 0  # junk words that may still be skipped after a move number
         self.problems = []     # (page, error) of spots that could not be read
+        self.diagnostics = []  # extraction losses, separate from Python exceptions
         self.alternatives = alternatives or {}  # token index -> other OCR readings of the move
         self.skip_tokens = set()  # words already read as moves out of order
+        self.book_game = None
+        self.numbered_sections = False
+        self.game_ranges = []
+        self.game_start_token = 0
+        self.visual_tokens = set(visual_tokens or ())
+        self.verified_tokens = self.visual_tokens | set(verified_tokens or ())
+        self.later_bold_numbers = {}
+        self.diagram_records = {(r["page"],r["marker"]):r for r in diagram_evidence or []}
+        self.diagram_pending = False
+        self.list_restart = False
 
     # -- helpers
     def parse(self, board, word, page):
@@ -901,6 +1203,8 @@ class GameFinder:
         """Parse a move word; if it fails, try its other OCR readings. An exact
         reading wins over a look-alike one ("d2—d4" before "д2—04" = g2—g4)."""
         page = tokens[k][2]
+        if k in self.verified_tokens:
+            return parse_move(board, tokens[k][1], self.ocr_langs)
         if page in self.ocr_pages and len(self.readings(tokens, k)) > 1:
             for word in self.readings(tokens, k):
                 move, nags = parse_move(board, word, self.ocr_langs)
@@ -922,6 +1226,9 @@ class GameFinder:
 
     def token_candidates(self, board, tokens, k, top=4):
         """candidate_moves over all OCR readings of a token: (distance, move), best first."""
+        if k in self.verified_tokens:
+            move, _ = parse_move(board, tokens[k][1], self.ocr_langs)
+            return [(0, move)] if move is not None else []
         best = {}
         for word in self.readings(tokens, k):
             for d, move in candidate_moves(board, word, self.ocr_langs, top):
@@ -931,6 +1238,9 @@ class GameFinder:
 
     def read_token(self, board, tokens, k, lenient=False):
         """read_ocr for a token: the best of all its OCR readings."""
+        if k in self.verified_tokens:
+            move, _ = parse_move(board, tokens[k][1], self.ocr_langs)
+            return move, 0 if move is not None else None
         best = (None, None)
         for word in self.readings(tokens, k):
             move, d = self.read_ocr(board, word, lenient)
@@ -1096,8 +1406,15 @@ class GameFinder:
             return None  # the next moves are checked anyway, so any short word with a digit
         if not in_row and sum(c.lower() in PROSE_LETTERS for c in tokens[i][1]) >= 2:
             return None  # a comment word ("теория": и, я are in no move), not a garbled move
+        # The broad look-ahead repair used to ignore a visually recognized
+        # figurine, even though closest_move/candidate_moves respect it. A
+        # damaged knight square must never be 'repaired' into a pawn move.
+        word = tokens[i][1]
+        piece = FIGURINES.get(ord(word[0])) if word else None
+        legal = [m for m in frame.board.legal_moves
+                 if not piece or frame.board.piece_at(m.from_square).symbol().upper() == piece]
         scored = [(*self.fitting_moves(self.after(frame.board, m), tokens, i + 1, REPAIR_HORIZON), m)
-                  for m in frame.board.legal_moves]
+                  for m in legal]
         best = max((s for s, _, _ in scored), default=0)
         self.repair_fit = best
         self.repair_scores = {m: (s, c) for s, c, m in scored}
@@ -1107,7 +1424,7 @@ class GameFinder:
             # the whole row is garbled ("18. #2:В ФБ:В" = g2:f3 Фf6:f3): after any move
             # the next word fails too, so look past one badly read move
             loose = [(*self.fitting_moves(self.after(frame.board, m), tokens, i + 1,
-                                          REPAIR_HORIZON, loose=1), m) for m in frame.board.legal_moves]
+                                          REPAIR_HORIZON, loose=1), m) for m in legal]
             if max((s for s, _, _ in loose), default=0) >= 4:
                 scored = loose
                 best = max(s for s, _, _ in scored)
@@ -1247,7 +1564,7 @@ class GameFinder:
         """Swap the moves of `part` (the end of the frame's line) for `moves`."""
         parent = part[0].parent
         was_main = parent.variations[0] is part[0]
-        kept = [(n.comment, set(n.nags), self.token_of[id(n)]) for n in part]
+        kept = [(n.comment, n.starting_comment, set(n.nags), self.token_of[id(n)]) for n in part]
         # side lines hang on the replaced moves ("4. c3 (4. d4)"): keep them
         sides = [[] if k == 0 else [v for v in n.parent.variations if v is not n]
                  for k, n in enumerate(part)]
@@ -1255,16 +1572,20 @@ class GameFinder:
         parent.remove_variation(part[0])
         frame.node = None if parent is frame.base else parent
         frame.board = parent.board()
-        for move, (comment, nags, token), others in zip(moves, kept, sides):
+        for move, (comment, starting_comment, nags, token), others in zip(moves, kept, sides):
             before = frame.node if frame.node is not None else parent
             board = frame.board.copy(stack=False)
             self.play(frame, move, nags)
             frame.node.comment = comment
+            frame.node.starting_comment = starting_comment
             self.token_of[id(frame.node)] = token
             for side in others:  # still legal after the corrected moves?
                 if legal_line(board, side):
                     side.parent = before
                     before.variations.append(side)
+                else:
+                    self.diagnostics.append({"code": "discarded_variation", "token": token,
+                                             "message": "A variation became illegal after an OCR correction."})
         first = parent.variation(moves[0])
         if was_main:
             parent.promote_to_main(first)
@@ -1296,12 +1617,17 @@ class GameFinder:
     # -- game start and end
     def start_game(self, board, page, line):
         self.close()
+        self.diagram_pending = False
+        self.list_restart = False
         self.game = chess.pgn.Game()
         self.from_fen = board != chess.Board()
         if self.from_fen:
             self.game.setup(board)
         self.game.headers["Event"] = self.book_name
         self.game.headers["BookPage"] = str(page)
+        self.game_start_token = self.position
+        if self.book_game is not None:
+            self.game.headers["BookGame"] = self.book_game
         self.read_headers(line)
         self.stack = [Frame(self.game, board.copy())]
         self.idle = 0
@@ -1320,6 +1646,15 @@ class GameFinder:
                 break
             if MOVE_TEXT_RE.search(text) and "·" not in text:
                 break
+            if self.book_game is not None:
+                venue = re.match(r"^(.{2,60}?)(?:,\s*|\s+)((?:18|19|20)\d{2})(?:\s*г\.?)?$", text)
+                if venue:
+                    self.game.headers["Site"] = venue.group(1)
+                    self.game.headers["Date"] = venue.group(2) + ".??.??"
+                    continue
+                eco = re.search(r"\b([A-E][0-9]{2})\b", text)
+                if eco:
+                    self.game.headers["ECO"] = eco.group(1)
             if "·" in text:
                 parts = [p.strip() for p in text.split("·")]
                 if DATE_RE.match(parts[-1]):
@@ -1330,7 +1665,9 @@ class GameFinder:
                     self.game.headers["Site"] = parts.pop(0)
                 break
             names = NAMES_RE.match(text)
-            if names and len(text.split()) <= 12 and not found_names:
+            if not names and self.book_game is not None:
+                names = PLAYER_PAIR.match(text)
+            if names and len(text.split()) <= 12 and not found_names and not any(c.isdigit() for c in text):
                 self.game.headers["White"], self.game.headers["Black"] = names.groups()
                 found_names = True
                 continue
@@ -1341,24 +1678,52 @@ class GameFinder:
         if self.game is None:
             return
         root = self.stack[0]
+        bounded_tail = result is not None
         if result is None and root.board.is_checkmate():  # "36. h2—h4×": the game ends in mate
             result = "0-1" if root.board.turn == chess.WHITE else "1-0"
-        if result and root.text:
-            self.attach(root, root.node)
+        # Only text bounded by game moves/result belongs to the game. Pending
+        # mainline prose at EOF or before a new heading may be a chapter essay.
+        for frame in reversed(self.stack):
+            if frame.text:
+                if frame is not root or bounded_tail:
+                    self.attach(frame, frame.node if frame.node is not None else frame.base)
+                else:
+                    self.diagnostics.append({"code": "excluded_tail", "severity": "info",
+                                             "page": int(self.game.headers["BookPage"]),
+                                             "message": "Unbounded text after the last move was excluded.",
+                                             "text": " ".join(frame.text)})
         plies = sum(1 for _ in self.game.mainline_moves())
-        if plies >= MIN_PLIES or (self.from_fen and plies >= 1):
+        if plies >= MIN_PLIES or (plies >= 1 and (self.from_fen or self.book_game is not None
+                                                 or result in ("1-0", "0-1", "1/2-1/2"))):
             self.game.headers["Round"] = str(len(self.games) + 1)
             self.game.headers["Result"] = result or "*"
+            # PGN has a pre-move comment field only for the first move of a
+            # side variation. A parenthesized continuation can become the
+            # first/only child; keep its introduction at the same position,
+            # after its parent move. Do this after all mainline promotions.
+            pending = [self.game]
+            while pending:
+                node = pending.pop()
+                if node.parent is not None and node.is_main_variation() and node.starting_comment:
+                    node.parent.comment = f"{node.parent.comment} {node.starting_comment}".strip()
+                    node.starting_comment = ""
+                pending.extend(node.variations)
             self.games.append(self.game)
+        elif plies:
+            self.diagnostics.append({"code": "short_fragment", "page": int(self.game.headers["BookPage"]),
+                                     "message": f"A fragment of {plies} plies without a result was not exported."})
         self.game = None
         self.stack = []
+        self.game_ranges.append((self.game_start_token, self.position))
+        self.book_game = None
 
     # -- moves and comments
     def attach(self, frame, node):
         if node is None:
             node = self.game
-        text = self.fix_comment_moves(" ".join(frame.text).strip(), node)
+        text = " ".join(frame.text).strip()
         frame.text = []
+        frame.pending_number = None
         if not text:
             return
         node.comment = f"{node.comment} {text}".strip()
@@ -1448,12 +1813,16 @@ class GameFinder:
 
     def play(self, frame, move, nags):
         parent = frame.node if frame.node is not None else frame.base
-        pending = self.fix_comment_moves(" ".join(frame.text).strip(),
-                                         frame.node if frame.node is not None else parent)
+        pending = " ".join(frame.text).strip()
         frame.text = []
+        frame.pending_number = None
         if frame.node is not None and pending:
             frame.node.comment = f"{frame.node.comment} {pending}".strip()
         new = parent.variation(move) if parent.has_variation(move) else parent.add_variation(move)
+        if frame is self.stack[0]:
+            # An analysis continuation may have been printed before the actual
+            # move. Its insertion order must never decide the game's mainline.
+            parent.promote_to_main(new)
         if frame.node is None and pending:
             if parent is self.game and frame is self.stack[0]:
                 self.game.comment = f"{self.game.comment} {pending}".strip()
@@ -1466,34 +1835,205 @@ class GameFinder:
         frame.expect = frame.board.turn == chess.BLACK
         self.idle = 0
 
+    def variation_anchor(self, frame, number, black, tokens, index):
+        """Resolve a printed move number against the active ancestry only.
+
+        Never search arbitrary sibling positions or use legality to invent a
+        missing move. The first word must have an exact reading at the anchor.
+        """
+        k = index + 1
+        if k >= len(tokens) or tokens[k][0] != "word":
+            return None
+        lang = self.ocr_langs if tokens[k][2] in self.ocr_pages else self.langs
+        starts = [frame.node if frame.node is not None else frame.base]
+        if frame.node is None and frame is not self.stack[0]:
+            outer = self.stack[self.stack.index(frame)-1]
+            starts.insert(0,outer.node if outer.node is not None else outer.base)
+        visited = set()
+        for node in starts:
+            while node is not None and id(node) not in visited:
+                visited.add(id(node))
+                board = node.board()
+                if self.matches(board,number,black):
+                    for word in self.readings(tokens,k):
+                        move,_ = parse_move(board,word,lang)
+                        if move is not None:
+                            return node,board
+                node = node.parent
+        return None
+
+    @staticmethod
+    def independent_variation_cue(tokens,index):
+        words=[]
+        for kind,value,_,_ in reversed(tokens[max(0,index-5):index]):
+            if kind != "word":
+                break
+            words.insert(0,value)
+        text=re.sub(r"(?<=\w)-\s+(?=\w)",""," ".join(words)).casefold()
+        return bool(re.search(r"(?:однако после|но после|вместо|however|instead)[,:]?\s*$",text))
+
+    def finish_frames(self, first):
+        """Close a bracket and any implicit branches nested inside it."""
+        while len(self.stack) > first:
+            done = self.stack.pop()
+            if done.node is not None:
+                self.attach(done,done.node)
+            elif done.text:
+                self.add_text("(" + " ".join(done.text) + ")")
+
     def run(self, tokens, progress=None):
+        self.numbered_sections = any(t[0] == "game_boundary" for t in tokens)
+        # The supported bold profile prints mainline moves in numbered games.
+        # Reserve a later visual anchor before considering a same-number move
+        # embedded in prose. Never carry a reservation into another game.
+        upcoming = {}
+        if self.numbered_sections and not self.table:
+            for i in range(len(tokens) - 1, -1, -1):
+                kind, value, *_ = tokens[i]
+                if kind in {"game_boundary", "game_end", "game_result"}:
+                    upcoming.clear()
+                elif kind == "num":
+                    if value in upcoming:
+                        self.later_bold_numbers[i] = upcoming[value]
+                    if i in self.visual_tokens:
+                        upcoming[value] = i
         total = len(tokens)
         for i in range(total):
             if progress and i % 5000 == 0:
                 progress(0.86 + 0.1 * i / max(total, 1), "Looking for games")
             try:
                 self.step(tokens, i)
+            except Stopped:
+                raise
             except Exception as exc:  # one bad spot must not lose the whole book
                 self.problems.append((tokens[i][2], repr(exc)))
         self.close()
         return self.games
 
+    def finish_resignation(self, result, tokens, index):
+        """Keep a final chess explanation bounded by a nearby annotation credit.
+
+        Example: 'Белые сдались, на 20. Кр:g2 решает 20...Лg6+.' followed by
+        'Примечания ...'. The biography after that credit is outside the game.
+        """
+        line = int(tokens[index][3])
+        paragraph_end = next((k for k in range(index+1,min(index+16,len(tokens)))
+                              if tokens[k][0]=="paragraph" and tokens[k][3]-line<=4),None)
+        if paragraph_end is not None and all(t[0]=="word" for t in tokens[index+1:paragraph_end]):
+            for token in tokens[index+1:paragraph_end]:
+                self.add_text(token[1])
+            self.skip_tokens.update(range(index+1,paragraph_end))
+        ending = next((k for k in range(index + 1, min(index + 65, len(tokens)))
+                       if tokens[k][0] == "game_end" and int(tokens[k][3]) - line <= 5), None)
+        if ending is not None:
+            tail = " ".join(self.lines[line:int(tokens[ending][3])])
+            word = tokens[index][1].strip(".!?,;:")
+            offset = tail.casefold().find(word.casefold())
+            if offset >= 0:
+                tail = tail[offset + len(word):].lstrip(" .!?,;:")
+                if tail and re.match(r"(?:на\b|после\b|ввиду\b|так как\b|if\b|because\b)", tail, re.I):
+                    self.add_text(tail)
+                    self.skip_tokens.update(range(index + 1, ending))
+        self.close(result)
+
     def step(self, tokens, i):
         """Read one token."""
         kind, value, page, line = tokens[i]
         self.position = i
+        if kind == "game_boundary":
+            self.close()
+            self.book_game = value
+            self.diagram_pending = False
+            self.list_restart = False
+            return
+        if kind == "game_end":
+            self.close()
+            self.book_game = None
+            return
+        if kind == "game_result":
+            if self.game is not None and any(f.node is not None for f in self.stack[1:]):
+                self.add_text(self.lines[int(line)])
+                self.stack[-1].expect = False
+                return
+            self.close(value)
+            return
         if kind == "junk" or i in self.skip_tokens:
             return
+        if kind == "list_item":
+            if self.stack:
+                active = self.stack[-1]
+                if active.node is not None:
+                    self.attach(active,active.node)
+                self.list_restart = True
+            return  # 1), 2) enumerate sibling lines; they are not closing brackets
         if self.game is not None:
             self.idle += 1
-            if self.idle > GAME_TIMEOUT:
+            if self.idle > GAME_TIMEOUT and not self.numbered_sections:
                 self.close()
         frame = self.stack[-1] if self.game is not None else None
 
+        if kind == "paragraph":
+            if (frame is not None and len(self.stack)>1
+                    and not any(f.explicit for f in self.stack[1:])):
+                for k in range(i+1,min(i+45,len(tokens))):
+                    if tokens[k][0] in {"game_boundary","game_end","board","fen"}:
+                        break
+                    if tokens[k][0]=="num":
+                        if k in self.visual_tokens and self.matches(self.stack[0].board,*tokens[k][1]):
+                            self.finish_frames(1)
+                            self.diagnostics.append({"code":"paragraph_mainline_resumed","severity":"info","token":i,
+                                                     "message":"A separate paragraph before the next bold mainline move belongs to the mainline comment."})
+                        break
+            return
+
+        if kind == "board":
+            record = self.diagram_records.get((page,value))
+            placement = record.get("placement") if record else None
+            if frame is not None:
+                if placement == frame.board.board_fen():
+                    self.add_text("[#]", force=True)
+                    record["status"] = "position_marker"
+                else:
+                    self.diagnostics.append({"code":"diagram_position_unverified","token":i,
+                                             "message":"The diagram could not be matched to the current position."})
+                return
+            self.diagram_pending = True
+            candidates = []
+            if placement and self.book_game is not None:
+                for k in range(i+1,min(i+12,len(tokens)-1)):
+                    if tokens[k][0] in {"game_boundary","game_end","board"}:
+                        break
+                    if tokens[k][0] == "num" and tokens[k+1][0] == "word":
+                        number, black = tokens[k][1]
+                        candidates = diagram_ocr.starting_positions(placement,number,black,
+                                        tokens[k+1][1],parse_move,self.ocr_langs if page in self.ocr_pages else self.langs)
+                        break
+            if len(candidates) == 1:
+                fen, orientation = candidates[0]
+                record.update(status="initial_position",fen=fen,orientation=orientation,
+                              halfmove_clock="unknown; encoded as 0")
+                self.start_game(chess.Board(fen),page,line)
+                self.game.headers["SourceStart"] = "diagram"
+                self.game.headers["FENHalfmoveClock"] = "unknown"
+                self.diagnostics.append({"code":"diagram_setup","severity":"info","token":i,
+                                         "message":"Initial placement read from 64 squares; side and move number from notation. Halfmove clock unknown."})
+            else:
+                if record and placement:
+                    record["status"] = "unresolved_context"
+                self.diagnostics.append({"code":"diagram_setup_unresolved","token":i,
+                                         "message":"Initial position is ambiguous or incomplete; no setup was guessed."})
+            return
+
         if kind == "fen":
+            if self.numbered_sections and frame is None and self.book_game is None:
+                return  # an unrelated position outside the book's numbered games
             try:
                 board = chess.Board(value if value.count(" ") == 5 else value + " 0 1")
+                if not board.is_valid():
+                    raise ValueError("Invalid chess position")
             except ValueError:
+                self.diagnostics.append({"code": "invalid_fen", "token": i,
+                                         "message": "The printed FEN is not a valid chess position."})
                 self.add_text(value)
                 return
             if (frame is not None and len(self.stack) == 1
@@ -1506,7 +2046,19 @@ class GameFinder:
 
         if kind == "num":
             num, black = value
+            list_restart,self.list_restart = self.list_restart,False
             main = self.stack[0].board if self.stack else None
+            visual_main = self.numbered_sections and i in self.visual_tokens and not self.table
+            if (visual_main and main is not None and self.matches(main, num, black) and len(self.stack) > 1):
+                self.diagnostics.append({"code": "visual_mainline_resumed", "token": i,
+                                         "message": "A printed bold move resumes the mainline after open comment brackets."})
+                while len(self.stack) > 1:
+                    done = self.stack.pop()
+                    if done.node is not None:
+                        self.attach(done, done.node)
+                    elif done.text:
+                        self.add_text("(" + " ".join(done.text) + ")")
+                frame = self.stack[0]
             if (self.table and i in self.rows and len(self.stack) > 1 and self.stack[0].node is not None
                     and (self.matches(main, num, black) or (
                         black == (main.turn == chess.BLACK) and one_digit_off(num, main.fullmove_number)
@@ -1531,21 +2083,58 @@ class GameFinder:
                 depth0 = False  # in a table book "1." inside a game is a misread "11."
             if self.table and i not in self.rows:
                 depth0 = False  # table books: a game starts with the row "1.", not "1. d4" in a comment
-            if num == 1 and not black and depth0 and not heading and self.lookahead(
-                    tokens, i + 1, chess.Board(), 1 if frame is None else 3):
-                intro = []  # text before "1." on the same line
-                for back in range(i - 1, -1, -1):
-                    if tokens[back][0] != "word" or tokens[back][3] != line:
-                        break
-                    intro.insert(0, tokens[back][1])
+            if (num == 1 and not black and depth0 and not heading and not self.diagram_pending
+                    and (not self.numbered_sections or (self.book_game is not None and frame is None)) and self.lookahead(
+                    tokens, i + 1, chess.Board(), 1 if frame is None else 3)):
                 self.start_game(chess.Board(), page, line)
-                if intro and self.keep_text:
-                    self.game.comment = " ".join(intro)
                 return
             if frame is None:
                 return
             self.after_number = 0
             mainline = len(self.stack) == 1 and frame.node is not None
+            restart_cue = self.independent_variation_cue(tokens,i)
+            if (frame.broken and len(self.stack) > 1 and not list_restart
+                    and not (restart_cue and self.variation_anchor(frame,num,black,tokens,i) is not None)):
+                frame.expect = False
+                self.add_text(f"{num}{'...' if black else '.'}")
+                return
+            reserved = (mainline and not visual_main and i in self.later_bold_numbers
+                        and self.matches(frame.board,num,black))
+            if not self.table and not visual_main and (reserved or list_restart or not self.matches(frame.board,num,black)):
+                anchor = self.variation_anchor(frame,num,black,tokens,i)
+                if anchor is not None:
+                    base,board = anchor
+                    if frame.node is None and frame is not self.stack[0]:
+                        frame.base,frame.board = base,board
+                    else:
+                        branch = Frame(base,board)
+                        branch.text,frame.text = frame.text,[]
+                        self.stack.append(branch)
+                        frame = branch
+                    frame.expect = True
+                    frame.pending_number = f"{num}{'...' if black else '.'}"
+                    self.after_number = 2
+                    self.diagnostics.append({"code":"variation_anchor","severity":"info","token":i,
+                                             "message":"Variation anchored to its printed move number and an exact legal move."})
+                    return
+                if reserved:
+                    frame.expect = False
+                    self.add_text(f"{num}{'...' if black else '.'}")
+                    self.diagnostics.append({"code":"variation_unresolved","token":i,
+                                             "message":"An analysis move could not be anchored without changing its reading."})
+                    return
+                if (len(self.stack)>1 and 2*(num-1)+int(black) < frame.board.ply()
+                        and i+1<len(tokens) and tokens[i+1][0]=="word"
+                        and re.search(r"[0-9♔-♟]",tokens[i+1][1])
+                        and not REAL_WORD_RE.search(tokens[i+1][1])):
+                    # An unread backwards-numbered alternative must not borrow
+                    # a later legal continuation from the preceding variation.
+                    frame.broken = True
+                    frame.expect = False
+                    self.add_text(f"{num}{'...' if black else '.'}")
+                    self.diagnostics.append({"code":"variation_start_unread","token":i,
+                                             "message":"An unread alternative starts here; later moves were not attached to the previous branch."})
+                    return
             if self.table and mainline and i not in self.rows:
                 # table books print the game in rows; a number inside a
                 # line belongs to a comment ("лучше 14...Кf8")
@@ -1569,19 +2158,25 @@ class GameFinder:
             elif frame.node is None and frame is self.stack[0] and self.from_fen \
                     and black == (frame.board.turn == chess.BLACK):
                 frame.board.fullmove_number = num  # book numbering after a diagram
+                self.game.setup(frame.board)  # exported FEN must use the same numbering
                 frame.expect = True
             elif frame.node is None and frame.base is not None and frame is not self.stack[0]:
                 frame.expect = self.rebase(frame, num, black)
             elif (page in self.ocr_pages and frame.node is not None
                   and black == (frame.board.turn == chess.BLACK)
+                  and self.idle <= 12
                   and digits_confusable(num, frame.board.fullmove_number)):
-                frame.expect = True  # OCR misread a digit of the move number
+                # A nearby damaged number can be repaired. After an unresolved
+                # gap, "4...Nf6" must not become "1...Nf6" merely because 1/4
+                # are look-alikes and the move happens to be legal.
+                frame.expect = True
             else:
                 frame.expect = False
             if not frame.expect:
                 self.add_text(f"{num}{'...' if black else '.'}")
             else:
                 self.after_number = 2  # junk OCR may leave for "...": skip up to 2 words
+                frame.pending_number = f"{num}{'...' if black else '.'}"
             return
 
         if frame is None:
@@ -1594,15 +2189,14 @@ class GameFinder:
                 board = frame.board.copy()
                 board.pop()
                 self.stack.append(Frame(frame.node.parent, board))
+            self.stack[-1].explicit = True
+            self.stack[-1].broken = frame.broken
             return
 
         if kind == "close":
-            if len(self.stack) > 1:
-                done = self.stack.pop()
-                if done.node is not None:
-                    self.attach(done, done.node)
-                elif len(" ".join(done.text)) > 2:
-                    self.add_text("(" + " ".join(done.text) + ")")
+            opened = next((n for n in range(len(self.stack)-1,0,-1) if self.stack[n].explicit),None)
+            if opened is not None:
+                self.finish_frames(opened)
             return
 
         if kind == "diagram":
@@ -1612,35 +2206,49 @@ class GameFinder:
         # kind == "word"
         plain = value.translate(DASHES)
         side = tokens[i - 1][1].lower() if i and tokens[i - 1][0] == "word" else ""
+        if (len(self.stack) == 1 and frame.node is not None and not frame.text
+                and re.fullmatch(r"(?:Ничья|Draw|Remis)[.!]?",value,re.I)
+                and self.token_of.get(id(frame.node)) == i-1
+                and tokens[i-1][3] == line):
+            self.finish_resignation("1/2-1/2",tokens,i)
+            return
+        if is_resign_word(value) and len(self.stack)>1:
+            self.add_text(value)
+            frame.expect = False
+            return
         if is_resign_word(value) and side in WHITE_WORDS | BLACK_WORDS:
             if frame.text and frame.text[-1].lower() == side:
                 frame.text.pop()
-            self.close("0-1" if side in WHITE_WORDS else "1-0")  # "Белые сдались."
+            self.finish_resignation("0-1" if side in WHITE_WORDS else "1-0", tokens, i)
             return
         names = {self.game.headers.get(c, "?").split()[0].lower(): c
                  for c in ("White", "Black") if self.game is not None and self.game.headers.get(c, "?") != "?"}
         if is_resign_word(value) and side.strip(",") in names and self.game is not None:
-            self.close("0-1" if names[side.strip(",")] == "White" else "1-0")  # "Нимцович сдался"
+            self.finish_resignation("0-1" if names[side.strip(",")] == "White" else "1-0", tokens, i)
             return
         if (is_resign_word(value) and side.strip(",") in THEY_WORDS and len(self.stack) == 1
                 and frame.node is not None):  # "..., поэтому они сдались": the side to move
-            self.close("0-1" if frame.board.turn == chess.WHITE else "1-0")
+            self.finish_resignation("0-1" if frame.board.turn == chess.WHITE else "1-0", tokens, i)
             return
         if (plain in RESULTS and all(f.node is None for f in self.stack[1:])
                 and not (plain == "*" and page in self.ocr_pages)):  # OCR junk has "*"
             self.close(RESULTS[plain])
             return
-        if plain in NAG_TOKENS and frame.node is not None and not frame.text:
-            frame.node.nags.add(NAG_TOKENS[plain])
+        if plain.rstrip(".,;") in NAG_TOKENS and frame.node is not None and not frame.text:
+            frame.node.nags.add(NAG_TOKENS[plain.rstrip(".,;")])
             return
-        if page in self.ocr_pages and len(plain) == 1 and not plain.isalnum():
+        if plain.rstrip(".,;") in {"+","#"} and frame.node is not None and not frame.text:
+            if frame.board.is_check():
+                return  # a check symbol OCR split off from the preceding move
+        if (page in self.ocr_pages and len(plain) == 1 and not plain.isalnum()
+                and not (frame.text and value in {"—","–","-","«","»"})):
             return  # OCR junk like "~" or "«" between moves
         if self.table and len(self.stack) == 1 and i not in self.rows:
             frame.expect = False  # table books: words outside the rows are comments
             self.add_text(value)
             return
         if frame.expect and frame.base is not None:
-            if (page in self.ocr_pages and frame.node is not None
+            if ((len(self.stack)==1 or self.table) and i not in self.verified_tokens and page in self.ocr_pages and frame.node is not None
                     and any(blocked_long_move(frame.board, w) for w in self.readings(tokens, i))
                     and not any(d <= 0.6 for d, _ in self.token_candidates(frame.board, tokens, i))):
                 # (unless a legal move is a close look-alike: "Лe2:еб" = Лe2:e5)
@@ -1648,7 +2256,16 @@ class GameFinder:
                 # fix the earlier move before any fuzzy reading of this one
                 self.repair_fit = 2
                 self.backtrack(frame, tokens, i, must_clear=True)
-            move, nags = self.parse_token(frame.board, tokens, i)
+            if len(self.stack) > 1 and not self.table:
+                # A legal but different move is not an OCR reading. Failed
+                # variation words stay in comments and in the quality report.
+                move,nags = None,[]
+                for reading in self.readings(tokens,i):
+                    move,nags = parse_move(frame.board,reading,self.ocr_langs if page in self.ocr_pages else self.langs)
+                    if move is not None:
+                        break
+            else:
+                move, nags = self.parse_token(frame.board, tokens, i)
             last_in_row = i + 1 >= len(tokens) or tokens[i + 1][3] != tokens[i][3]
             if (move is None and self.table and (self.after_number or (last_in_row and i in self.rows))
                     and page in self.ocr_pages
@@ -1658,7 +2275,7 @@ class GameFinder:
                     and not re.search(r"[a-hасе][\dЗзбОо]|\w[—–:-]\w", plain)):  # "еб", "2—4" are moves
                 self.after_number = max(0, self.after_number - 1)  # "8.  ce  Сf8—e7" or
                 return  # "20.  Сg2—f3  ..е": OCR junk for "..."
-            if move is None and page in self.ocr_pages:
+            if move is None and page in self.ocr_pages and i not in self.verified_tokens and (len(self.stack)==1 or self.table):
                 move = self.repair(frame, tokens, i)
                 unlike = move is not None and self.repair_look > 1  # the repair looks unlike the text
                 if ((move is None or unlike) and frame.node is not None and move_code(value)
@@ -1673,6 +2290,15 @@ class GameFinder:
                     self.guessed = False
                 return
         frame.expect = False
+        if frame.pending_number:
+            self.add_text(frame.pending_number)
+            frame.pending_number = None
+        if (len(self.stack)>1 and not self.table and not frame.broken
+                and ((move_code(value) and COMMENT_MOVE_RE.match(value.rstrip(".,;")))
+                     or re.search(r"[♔-♟].*[1-8]",value))):
+            frame.broken = True
+            self.diagnostics.append({"code":"variation_move_unread","token":i,
+                                     "message":"Variation stopped at an unread move; remaining text was preserved without guessed moves."})
         self.add_text(value)
 
     def shifted_black_move(self, frame, tokens, i):
@@ -1740,8 +2366,12 @@ class GameFinder:
 def page_range(options, count):
     """The pages to convert, as 0-based (first, end) for range(), from the 1-based
     first_page / last_page options (empty = from the start / to the end)."""
-    first = options.get("first_page") or 1
-    last = options.get("last_page") or count
+    first = options.get("first_page")
+    last = options.get("last_page")
+    first = 1 if first is None else first
+    last = count if last is None else last
+    if first < 1 or last < 1:
+        raise UserError("Page numbers must be positive integers.")
     if first > count:
         raise UserError(f"The book has only {count} pages.")
     if first > last:
@@ -1771,7 +2401,7 @@ def token_lines(tokens):
 
 def is_resign_word(word):
     """"сдались", or its start before a line break ("сда-")."""
-    w = word.lower().strip(".!")
+    w = word.lower().strip(".!?,;:")
     cut = w.rstrip("-—–")
     return w in RESIGNED or (cut != w and len(cut) >= 3 and any(r.startswith(cut) for r in RESIGNED))
 
@@ -1856,7 +2486,7 @@ def table_layout(tokens):
         if is_row(tokens, start, end):
             rows += 1
             long_rows += any(LONG_ROW_RE.search(w) for w in row_words(tokens, start, end))
-    if rows < 5 or rows < 0.3 * numbers:
+    if rows < 5 or (rows < 0.3 * numbers and not (long_rows >= 8 and long_rows >= 0.7 * rows)):
         return None
     # rows in long notation ("Кd4—f3+"): a "row" of only clean short moves is a
     # comment line that starts with a move number ("13. . .Сh3, ...")
@@ -2099,10 +2729,42 @@ def merge_second_reading(tokens, alt_tokens):
     return merged, alternatives
 
 
+def refine_diagrams(kind, src, tmp, evidence, progress):
+    pending = {}
+    for record in evidence:
+        if (record.get("kind") == "board" and record.get("dpi") == OCR_DPI
+                and record.get("placement") is None and diagram_ocr.valid_evidence(record)):
+            pending.setdefault(record["page"], []).append(record)
+    for number, records in sorted(pending.items()):
+        progress(0.86, f"Checking diagram squares: page {number}")
+        if kind == "pdf":
+            with fitz.open(src) as doc:
+                pix = doc[number-1].get_pixmap(dpi=OCR_DPI, colorspace=fitz.csGRAY, alpha=False)
+        else:
+            image = Path(tmp) / f"diagram-{number}.pgm"
+            run_tool("ddjvu", "-format=pgm", f"-page={number}", f"-scale={OCR_DPI}",
+                     "book.djvu", image.name, cwd=tmp)
+            original = fitz.Pixmap(str(image))
+            # Match the original OCR rasterization and its PDF-point coordinates.
+            with fitz.open() as doc:
+                page = doc.new_page(width=original.width*72/OCR_DPI, height=original.height*72/OCR_DPI)
+                page.insert_image(page.rect, pixmap=original)
+                pix = page.get_pixmap(dpi=OCR_DPI, colorspace=fitz.csGRAY, alpha=False)
+            image.unlink()
+        for record in records:
+            diagram_refinement.refine(record, pix, OCR_DPI)
+
+
 def book_to_pgn(src, dst, options, progress):
     lang = options.get("lang", "auto")
     ocr = options.get("ocr", "auto")
+    figurines = options.get("figurine_ocr", "auto")
+    coordinates = options.get("coordinate_ocr", "auto")
+    glyph_evidence = []
     kind = "pdf" if src.suffix.lower() == ".pdf" else "djvu"
+    report_path = Path(options.get("report") or report_path_for(dst))
+    if report_path.resolve() in (src.resolve(), dst.resolve()):
+        raise UserError("The report must be a different file from the input and PGN.")
     with tempfile.TemporaryDirectory() as tmp:
         if kind == "djvu":
             shutil.copyfile(src, Path(tmp) / "book.djvu")
@@ -2112,7 +2774,7 @@ def book_to_pgn(src, dst, options, progress):
         if ocr == "always":
             todo = list(range(first, end))
         elif ocr == "auto":
-            todo = [i for i in range(first, end) if not pages[i].strip()]
+            todo = automatic_ocr_pages(src, pages, first, end)
         else:
             todo = []
         ocr_lang = lang
@@ -2120,26 +2782,34 @@ def book_to_pgn(src, dst, options, progress):
             if ocr_lang == "auto":
                 progress(0.06, "OCR: finding the book language")
                 ocr_lang = detect_ocr_language(kind, src, todo, tmp, progress)
-            for index, text in ocr_book(kind, src, todo, OCR_LANGS[ocr_lang], tmp, progress).items():
+            for index, text in ocr_book(kind, src, todo, OCR_LANGS[ocr_lang], tmp, progress,
+                                        figurines=figurines, evidence=glyph_evidence, coordinates=coordinates).items():
                 pages[index] = text
         ocr_pages = frozenset(i + 1 for i in todo)  # real page numbers, from 1
-        tokens, lines = tokenize(pages[first:end], ocr_pages, start=first + 1)
+        cleaned = clean_running_headers(pages[first:end])
+        tokens, lines = tokenize(cleaned, ocr_pages, start=first + 1, boundaries=True)
         alternatives = {}
         if todo and table_layout(tokens):
             # a table book: read the scanned pages a second time; each reading
             # damages other rows, so every move gets two chances
             progress(0.5, "OCR: second reading of the move rows")
-            second = ocr_book(kind, src, todo, OCR_LANGS[ocr_lang], tmp, progress, dpi=ALT_OCR_DPI)
+            second = ocr_book(kind, src, todo, OCR_LANGS[ocr_lang], tmp, progress, dpi=ALT_OCR_DPI,
+                              figurines=figurines, evidence=glyph_evidence, coordinates=coordinates)
             alt_pages = [second.get(i, pages[i]) for i in range(first, end)]
-            alt_tokens, _ = tokenize(alt_pages, ocr_pages, start=first + 1)
+            alt_tokens, _ = tokenize(clean_running_headers(alt_pages), ocr_pages, start=first + 1, boundaries=True)
             tokens, alternatives = merge_second_reading(tokens, alt_tokens)
+        refine_diagrams(kind, src, tmp, glyph_evidence, progress)
     pages = pages[first:end]
-    if not any(page.strip() for page in pages):
-        raise UserError("No text found in these pages." +
-                        ("" if todo else "\nTurn on OCR to read scanned pages."))
+    # Merged table rows no longer retain original line/word positions.
+    visual_tokens = (set() if table_layout(tokens) else
+                     visual_token_evidence(tokens, cleaned, first + 1, glyph_evidence))
+    verified_tokens = (set() if table_layout(tokens) else
+                       visual_token_evidence(tokens, cleaned, first + 1, glyph_evidence, mainline_only=False))
     langs = detect_languages(tokens) if lang == "auto" else [lang]
     finder = GameFinder(src.stem, langs, options.get("keep_text", True), lines,
-                        ocr_pages, ocr_lang if todo else "en", table_layout(tokens), alternatives)
+                        ocr_pages, ocr_lang if todo else "en", table_layout(tokens), alternatives, visual_tokens,
+                        [g for g in glyph_evidence if g.get("kind") == "board" and g.get("dpi") == OCR_DPI],
+                        verified_tokens=verified_tokens)
     try:
         games = finder.run(tokens, progress)
     except Stopped:
@@ -2147,14 +2817,57 @@ def book_to_pgn(src, dst, options, progress):
     except Exception as exc:  # keep what was found, instead of losing everything
         finder.problems.append((None, repr(exc)))
         games = finder.games
+    quality = build_report(finder, tokens, pages, src, dst, first, count, options, parse_move,
+                           lambda word: bool(move_code(word) and COMMENT_MOVE_RE.match(word.rstrip(".,;"))))
+    coordinate_evidence = [g for g in glyph_evidence if g.get("kind") == "coordinate"]
+    board_evidence = [g for g in glyph_evidence if g.get("kind") == "board"]
+    glyph_evidence = [g for g in glyph_evidence if g.get("kind") not in {"coordinate","board"}]
+    quality["diagram_ocr"] = {"detected":len(board_evidence),"boards":board_evidence,
+                               "note":"Limited calibrated print style; every square must match. Unknown orientation/history is not guessed."}
+    quality["coordinate_ocr"] = {"mode": coordinates, "recognized": len(coordinate_evidence),
+                                 "whole_words": sum(g.get("reading") == "whole_word" for g in coordinate_evidence),
+                                 "number_only": sum(g.get("reading") == "number_only" for g in coordinate_evidence),
+                                 "regular_words": sum(g.get("style") == "regular" for g in coordinate_evidence),
+                                 "applied": sum(g["changed"] for g in coordinate_evidence),
+                                 "words": coordinate_evidence,
+                                 "note": "Limited to calibrated bold and regular fonts. Regular readings never reserve mainline moves. "
+                                         "Shape scores are not probabilities. "
+                                         "Boxes use original page coordinates in PDF points; line numbers are zero-based per page."}
+    quality["figurine_ocr"] = {"mode": figurines, "recognized": len(glyph_evidence),
+                                "applied": sum("replacement" in g for g in glyph_evidence),
+                                "alternate_readings_used": sum(g.get("used_alternate", False) for g in glyph_evidence),
+                                "conflicting_readings": sum(g.get("conflicting_readings", False) for g in glyph_evidence),
+                                "glyphs": glyph_evidence,
+                                "note": "Shape similarity is not a calibrated probability of correctness. "
+                                        "Boxes use original page coordinates in PDF points."}
+    # Save evidence even when strict mode rejects the conversion or no game was found.
+    write_json(report_path, quality)
     if not games:
-        raise UserError("No games found in these pages.")
+        raise UserError(f"No games found in these pages. Report: {report_path}")
+    if options.get("strict") and quality["status"] != "completed":
+        raise ReviewRequired(f"Review required: {len(quality['issues'])} issues. "
+                             f"PGN was not replaced. Report: {report_path}")
     progress(0.97, "Writing PGN")
-    with open(dst, "w", encoding="utf-8", newline="\n") as out:
-        for game in games:
-            out.write(f"{game}\n\n")
+    try:
+        digest = write_pgn(dst, games)
+    except ValueError as exc:
+        quality["status"] = "failed"
+        quality["issues"].append({"code": "invalid_export", "severity": "error", "message": str(exc)})
+        quality["summary"]["issues"] += 1
+        quality["summary"]["issue_counts"]["invalid_export"] = 1
+        write_json(report_path, quality)
+        raise UserError(f"PGN validation failed. Report: {report_path}") from exc
+    quality["output"].update(written=True, sha256=digest)
+    write_json(report_path, quality)
     message = (f"Found {plural(len(games), 'game')} in {plural(len(pages), 'page')}"
                f"{range_text(first, end, count)}.")
+    variation_plies = quality["summary"]["total_plies"]-quality["summary"]["mainline_plies"]
+    setups = sum(r["status"]=="initial_position" for r in board_evidence)
+    if variation_plies or setups:
+        message += f"\nImported {variation_plies} moves in variations; {setups} starting positions from diagrams."
+    unread = quality["summary"]["issue_counts"].get("variation_move_unread",0)
+    if unread:
+        message += f"\n{unread} variation readings need review; their source text was retained."
     if todo:
         message += (f"\n{len(todo)} pages were read with OCR ({ocr_lang}). "
                     "OCR makes mistakes: check these games in ChessBase.")
@@ -2167,6 +2880,7 @@ def book_to_pgn(src, dst, options, progress):
         message += (f"\n{plural(len(finder.problems), 'spot')} could not be read and "
                     f"{'was' if len(finder.problems) == 1 else 'were'} skipped "
                     f"(first{where}: {error}).")
+    message += f"\nQuality: {quality['status']}; {len(quality['issues'])} issues. Report: {report_path}"
     return message
 
 
@@ -2846,21 +3560,35 @@ def main():
     parser.add_argument("output")
     parser.add_argument("--lang", default="auto", choices=["auto", "en", "ru", "de"])
     parser.add_argument("--ocr", default="auto", choices=["auto", "always", "off"])
+    parser.add_argument("--figurine-ocr", default="auto", choices=["auto", "off"],
+                        help="local visual recognition of supported chess figurines")
+    parser.add_argument("--coordinate-ocr", default="auto", choices=["auto", "off"],
+                        help="local visual recognition of supported bold move coordinates")
     parser.add_argument("--pieces", default="letters", choices=["letters", "figurines", "russian"])
     parser.add_argument("--pages", help="only these book pages, like 5-20 (or 5- or -20)")
     parser.add_argument("--no-comments", action="store_true")
     parser.add_argument("--no-final-diagram", action="store_true")
+    parser.add_argument("--report", help="JSON quality report (default: OUTPUT.report.json)")
+    parser.add_argument("--strict", action="store_true", help="do not replace PGN if any quality issues are found; exit 2")
     args = parser.parse_args()
-    options = {"lang": args.lang, "ocr": args.ocr, "pieces": args.pieces,
-               "keep_text": not args.no_comments, "final_diagram": not args.no_final_diagram}
+    options = {"lang": args.lang, "ocr": args.ocr, "pieces": args.pieces, "figurine_ocr": args.figurine_ocr,
+               "coordinate_ocr": args.coordinate_ocr,
+               "keep_text": not args.no_comments, "final_diagram": not args.no_final_diagram,
+               "strict": args.strict, "report": args.report}
     if args.pages:
         first, dash, last = args.pages.partition("-")
         last = last if dash else first  # "7" alone means only page 7
-        options["first_page"] = int(first) if first.strip() else None
-        options["last_page"] = int(last) if last.strip() else None
+        try:
+            options["first_page"] = int(first) if first.strip() else None
+            options["last_page"] = int(last) if last.strip() else None
+        except ValueError:
+            parser.error("--pages must look like 5-20, 5-, -20, or 5")
     try:
         print(convert(args.input, args.output, options,
                       lambda value, text: print(f"{value * 100:5.1f}%  {text}", file=sys.stderr)))
+    except ReviewRequired as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(2)
     except UserError as exc:
         sys.exit(f"Error: {exc}")
 
