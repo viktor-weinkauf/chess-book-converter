@@ -57,6 +57,7 @@ def run(manifest_path, output):
             print(f"Checking {case['id']} (pages {first}-{last})", flush=True)
             convert(source, destination, {"lang": case.get("lang", "auto"),
                                           "first_page": first, "last_page": last,
+                                          "mainline_only": case.get("mainline_only", False),
                                           "figurine_ocr": case.get("figurine_ocr", "auto"),
                                           "coordinate_ocr": case.get("coordinate_ocr", "auto")},
                     lambda fraction, message: print(f"  {message}", flush=True))

@@ -171,7 +171,18 @@ def build_report(finder, tokens, pages, source, destination, first, count, optio
         if kind == "word" and index not in consumed and in_game and looks_like_move(value):
             issue("unparsed_move_candidate", "Move-like text was not exported as a move.", token=index)
     for diagnostic in finder.diagnostics:
-        issue(**diagnostic)
+        record = dict(diagnostic)
+        if record["code"] == "move_sequence_gap":
+            first_token = record["token"]
+            last_token = min(record.get("end_token", first_token), len(tokens) - 1)
+            source_lines = []
+            seen = set()
+            for _, _, page, line in tokens[first_token:last_token + 1]:
+                if (page, int(line)) not in seen:
+                    seen.add((page, int(line)))
+                    source_lines.append({"page": page, "line": int(line), "text": finder.lines[int(line)]})
+            record["unparsed_source"] = source_lines
+        issue(**record)
     exported_numbers = {game.headers.get("BookGame") for game in finder.games}
     for index, (kind, value, page, _) in enumerate(tokens):
         if kind == "game_boundary" and value not in exported_numbers:
@@ -188,11 +199,13 @@ def build_report(finder, tokens, pages, source, destination, first, count, optio
         issue("no_games", "No exportable games were found.", severity="error")
     needs_review = any(issue["severity"] != "info" for issue in issues)
     return {"schema_version": 1, "status": "needs_review" if needs_review else "completed",
+            "extraction_mode": "mainline_with_text" if getattr(finder, "mainline_only", False) else "variation_tree",
             "source": {"path": str(Path(source).resolve()), "sha256": sha256_file(source),
                        "total_pages": count, "first_page": first + 1, "last_page": first + len(pages)},
             "output": {"path": str(Path(destination).resolve()), "written": False},
             "options": {k: v for k, v in options.items() if k != "report"},
             "summary": {"games": len(games),
+                        "incomplete_games": sum(g["headers"].get("ExtractionStatus") == "incomplete" for g in games),
                         "detected_game_headings": sum(t[0] == "game_boundary" for t in tokens),
                         "mainline_plies": sum(g["mainline_plies"] for g in games),
                         "total_plies": sum(g["total_plies"] for g in games),

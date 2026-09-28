@@ -119,3 +119,44 @@ now accepts 16 correct words, up from 12, with no incorrect accepted reading.
 The similarity and ambiguity thresholds remain unchanged. OCR cache version 21
 also corrects split-word ownership and keeps explicit audit evidence for joins
 and isolated text bands. This does not establish accuracy on arbitrary fonts.
+
+## Diagram follow-up
+
+`boards-extra.json` version 2 adds five visually labelled cells from volume 2,
+file page 19: black knight/dark, black rook/light, white bishop/dark, white
+rook/light and white king/dark. The profile now has eight supplemental samples;
+the base profile and distance/margin thresholds are unchanged. These are only
+cell features and source coordinates, with no positions or move sequences.
+Page 19 is now development material and must not be called a held-out test.
+
+The diagram on that page improves from 59 to 64 correct accepted cells. Page 20
+remains held out for the board profile (61/64). Earlier holdouts on pages 15,
+25 and 26 retain their readings. Two newly labelled diagrams on pages 27 and
+28 accept 49/64 and 58/64 cells, respectively; page 28 previously accepted
+57/64. None of the accepted cells in these checks disagrees with the visual
+labels. No sample from a held-out page was added to the profile.
+
+`diagram_followup.json` and `diagram_new_pages.json` store reduced cell features
+and independent visual labels for regression/evaluation, never for conversion.
+The original board-image crops remain unchanged. Fully reading a diagram does
+not establish castling rights or en-passant history; those are checked separately.
+
+## Bold words on the original page
+
+`bold-extra.json` adds three shapes from development pages 18 and 22 of
+Kasparov volume 1: the touching knight/file-f pair, a lowercase d, and a
+thick full stop. It contains no moves or game identifiers. Six small grayscale
+crops in `tests/fixtures/bold_source_words.json` exercise full words, split
+numbers and split square fragments. Source coordinates accompany the crops.
+
+`bold_ocr.py` applies this supplement after cached OCR, on the original page
+in mainline mode. Number/side constraints, a unique match on the audited line,
+and a complete pixel reading are required. Figurines require independent
+font detection. Existing similarity and ambiguity thresholds are unchanged;
+the base OCR cache is not modified. Batch fingerprints include the new module
+and profile. This is limited font support, not general font recognition.
+
+Two new game checks were kept out of tuning at this stage: Spassky–Yukhtman
+(Spassky volume 1, file pages 22–24) and Anderssen–Kieseritzky (Kasparov volume 1,
+pages 26–29). Their results remain a correct 38/59-ply prefix and no exported
+game, respectively. See `BOLD_MAINLINE_DEVELOPMENT_RU.md` for scope and limits.

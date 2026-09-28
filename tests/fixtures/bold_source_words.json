@@ -1,0 +1,508 @@
+[
+  {
+    "text": "2.913.",
+    "expected": "2.♘f3.",
+    "width": 325,
+    "height": 45,
+    "samples": "eJztWgmSnDAM5Gn6mZ6mpxEGXzpaxszOZrMpVJXaAetotYUtQ/b9kd8usm1U/shPQ/m9wtvBohwcbttPQ/m98iKxCslPg/mtokic8cj89UjHP+Hy93+TSh9XNom9glBjWN/ll9wIQ9u2Nl1viKyuRLIFoUTzyE5BZlnyK6MkrQH5gJYOXsTvSj6Hf1PkzHVR2c9kzLZJUJvS+PJ7lpSceuyzM3EhkFUyCovEIrXqP8LiALas7NiZgF1guyuLu0Fu3JAYvS+SwQpKWSIw/ntSHrpF5XUSkabM3eo7YmgJJIJlZZFF1qHkYnJvCP8tErMojEZJ0RK8gDpfJcOEojyBm0J/jcQELl6caNDSHdCxW9GekJh4R8BM5I+sijmJdYsdjQCAnkAoaYmYdBMAhgJp1EkzIBWs7U/04pM32hbcT4JNSRRJBjK/yIfOnxSCAoNXAyk3WJnP3bJFHWBaKbpZi+DvV2JTJWwnW2lZz/ByNqOdatSZHuglItvDE+MQrwF2RphEG14v0GXu/KPrnHyJxARV37dUAGrovM3Y5IIfDJ3eIFF5guPkSey+S1iPpA2fBaIbepXYFZp6IRmqej6Shq+uaOWnDiYqfnAUegjuCdd5uTiDDKE8SotE5soknJJIm5clNLpPnHTbbHMW/UuUVfMGX0AFiDxsYkIzUZ4kgctW21xFEncFX8udPvE4m7cixilIHxoccrulGO5poT4xQGR8+/IZuuJQl54YlgoyMi6OBb55eYvCfHHw0oDQaE4AidzxAhJHqGMrkrEhRRIvWFQE4DT7AQ+tzxUZXLoXyQji8SeGJZo5j0r/3exGvU5JdCEAiTMWF5pEai66riZ7cyflCZTVUiyYj9aMp28gzmi99opI2wcaM6MQEYlZ5gRITNHbzYmxUnFR+qwDo5uUaofgBCh31kTRCKHhCRmWCI98FKYJiRw81Adb19gcb5UIpkjloqx+5sBcRztYH+q1I9GmggSwSMSgkdQwSY5NtDdJBN5SEnWtLPipcf1oB5vUzKj3tVK0cNRGi2GJiUWndl8KaYnESe91SZDmEMD0aqJXbh1lv5hTvgICcDvjqAX3srOllR2uiWH+b5IocFw/zL5GzPGTugoFX2JJhKE8kKOZwIiUupirjMSzk7QHAepWvBsSKbrpVdSP3dUPBw2cmdlUAof+fkmbsOaueGow+isLMR9yFC/Z3LpVcFqJbuMZTtdIVAtNWb9L2IqgNQeYIpOJkabZ8/YxoytHokk9iIXOwdkw7WOUkNiabRq4ZWgaEqX7vSSBU/AQLM5S3KAxoeRdEjDAJJIdg7gcifPduaJSBzs1T9xHu1/vw/Z4UxIFYcUksht02YGaphskih1D1DjaJMLQERoC9V5TdttdTknEr8IA+OTz930Sy2VZdHv+fmOZuScHnHckMlCTIR+krwykBdVL2a5OrYRI9CcC5RAg/wyJWJABRbXG2ZxEiZaIQ70WctManlWAU5HTT6Zog3UQ8v+Fgflgl6e2SDaL1vtoFGA2JYYGJKInCaiNc5Tyx309LWfUZqjaA8jE+MqimpFhNGvHyoeJ8uq5mzQv4r021697G5WPUK+r/vpIvUhS/jsPBkjDB9D1wB0dR6Xig2zs2ns2fdEhO5ScDiSy/Fr7rt9vcWvkm0LAjeWRe/KQ+AF5SPyAPCR+XeT+xvKIk3d250ecyPlJ/6dRPPLII4/8S/IHk+c9HA==",
+    "records": [
+      {
+        "kind": "coordinate",
+        "reading": "number_only",
+        "original_word": "2.913.",
+        "replacement": "2.913.",
+        "changed": false,
+        "bbox": [
+          19.200001831054692,
+          0.6800317382812864,
+          50.87990295410157,
+          10.289620361328161
+        ],
+        "characters": [
+          {
+            "char": "2",
+            "bbox": [
+              19.200000000000003,
+              1.6399877929687818,
+              24.72,
+              8.35998779296881
+            ],
+            "similarity": 0.9261
+          },
+          {
+            "char": ".",
+            "bbox": [
+              26.16000000000001,
+              6.199987792968784,
+              28.320000000000007,
+              8.35998779296881
+            ],
+            "similarity": 0.9705
+          }
+        ],
+        "style": "bold",
+        "expanded_clipped_edge": false,
+        "isolated_text_band": false,
+        "joined_number_fragment": false,
+        "profile": "bold-algebraic-v2-coverage-v2",
+        "line": 0
+      },
+      {
+        "symbol": "♘",
+        "bbox": [
+          262.08,
+          -423.35999999999996,
+          270.0,
+          -415.43999999999994
+        ],
+        "similarity": 0.9168
+      }
+    ],
+    "source": {
+      "book": "Kasparov_MGP_Vol_1.djvu",
+      "file_page": 18,
+      "dpi": 300,
+      "bbox_pixels": [
+        187,
+        2071,
+        512,
+        2116
+      ]
+    }
+  },
+  {
+    "text": "9.са.",
+    "expected": "9.cd.",
+    "width": 312,
+    "height": 43,
+    "samples": "eJztWglyxSAIzdG4GUfjaGkSY1jEJcb093d8M535ogg8cW3WdWIiC8INXKDt73POfAUWBu5lFIIPu+biGGEc2uXR45YrN5VOkiBo0iW42dFvAM0gjwD1ZglaPxLBH4GcCvtAD+71riJ9B2+0JKAR/Xbztn4Fbw5tY4jrnqffkW8ebWN2rn+9vqHPGzUpU2m3/N/5xlSh5LC6NyDElpY6gkWjzycsCT4PzRQ0BqupkTXOctnnE5YE59HQ6JGeKsI+DT8y65mJTcFabkSVzbUe3pJpmZm4i15OLq+AlC+wvsqbW/RhycFszRjeILUC5y2CVCMjpUjb1uddJ2q4ogNdLKgkW8nllEtbJ2+AEWCs4OmsIg7ib44l/A5qg87yDA5vX+AvSrBJxTTO7M13XXJPlMKl2KVIp8N0aADCZCR226ruOlGDShEuYV5DhhVygWwFxFDe4A0vi9w7sR1adL5REN11ogaVI0wiNWjY3DfJ2s3bNU+PwnZE1Lx5dKKoJ5WZewHeeEuBxUOLgvUFjPIz3jAjcB8hMmYONc7PsWDi+BcW2ufSLalYsi3LKN8XMJCxZaN43Mv4nBvhMYh0AfNWMpTl1lRQt9dV3qxp/Ahv580IxHpcal3NNwzFh+sbZgQeb6V5+iZxBwRtyi97ec+SC1rba1d8CIhoWN+sSiXfXv3PBFxGdCbZMcsOok4wHoZCXy7K94W7vKE85r0AsU8p+RU/Jg23czJuKRRZUAcUd9InfbkA20QJSPF+HjpAD4beLlymhyGXbukVYrHAGIOPUl8ekiY6ARfBEZ1inVMglwoMoTVx0IEcbU6s3NTUJBV9vEGZt/OYsucUE8Ke036HWVl69thMxD2IkEnXOLFafnREj3mrvYco8+SZjiFc1sffT1OzbhQqEMsPV1hGe3g7exdpb3SkefKEURVYrWTwAdDxRHutHxI1P6KxqPDOb3XeElK8IY1W4gultgxaEh4Z2ni4C3aOkjrwapDd1BVRvn8KE9iDWl8ZT1LekFuBYY0b8gFR8pY3+Awdn/vEZ0VK+xr8ncnExMTExMTExMTExMTE38MPO3WXvg==",
+    "records": [
+      {
+        "kind": "coordinate",
+        "reading": "number_only",
+        "original_word": "9.са.",
+        "replacement": "9.са.",
+        "changed": false,
+        "bbox": [
+          19.199984893798828,
+          0.6799951171875591,
+          47.699969635009765,
+          9.809114990234434
+        ],
+        "characters": [
+          {
+            "char": "9",
+            "bbox": [
+              19.200000000000003,
+              0.9199877929688114,
+              24.96,
+              7.879987792968791
+            ],
+            "similarity": 0.9445
+          },
+          {
+            "char": ".",
+            "bbox": [
+              27.119999999999997,
+              5.479987792968814,
+              29.519999999999996,
+              7.639987792968782
+            ],
+            "similarity": 0.9499
+          }
+        ],
+        "style": "bold",
+        "expanded_clipped_edge": false,
+        "isolated_text_band": false,
+        "joined_number_fragment": false,
+        "profile": "bold-algebraic-v2-coverage-v2",
+        "line": 0
+      },
+      {
+        "symbol": "♕",
+        "bbox": [
+          232.8,
+          -367.43999999999994,
+          241.20000000000002,
+          -359.28
+        ],
+        "similarity": 0.923
+      }
+    ],
+    "source": {
+      "book": "Kasparov_MGP_Vol_1.djvu",
+      "file_page": 22,
+      "dpi": 300,
+      "bbox_pixels": [
+        61,
+        1931,
+        373,
+        1974
+      ]
+    }
+  },
+  {
+    "text": "17 7.♘e4",
+    "expected": "17.♘e4",
+    "width": 334,
+    "height": 46,
+    "samples": "eJztWglSxTAI7dG4GUfjaLVbwpoEu/jV6ZtR+4GwvJA0rX+eX7x40QMALr9pmujDifwHLDROQPPy+6XzOnCqgE/n8vdBk8C26F9cwGRAn07oB0G4I9TQKt/UdNjR2GFty2t0lsSi1CJzmHKGT4LaLYS2yVLUHA5XDmDZOOHs/ik2jNTwX7AICDhntMqQzGED7B5FiHN0qt2XxvbweTJV9zntOTZ9/XCGTpAxKWM+Suxp6KXs1KfYxMDqBJ2qNX1qFpBr4EfxBJsQddP3i9UxR9aUWDOP4xSbA5+70dGJdBwBsDGQsOEFVMhhX0Omf5/GgE3CaTsSLT9pNkmVX819cy7nn50yCA5dep0P2cR0awYHrjWPW54xBmwKpCvTFuwV9EhNF7bDpdcDsW/Y5ig4HZf5E9KLZ2LlPZuyMOxHRWWBTCHpgg1bsr6Z13n5O2DT7COqKjGF4jRYpSy6TudaLfvrGIbZNQx1a2KksWSa4EWNGGnj7FB83k+4eAwnIV1nDYU5bPqDZpovYt0UE2yK6vshUZEJskoQETyZapZYlGKTLJtML7BnqpfsEUpBkGiUFDJsfqc1UTtWH9GGLHciNU3AkhSbqOKUfLGq2CvNSkhVi+MoOSTYFBsRNo2KIegxPIB1amrAGpIQpNj0ibFA8VVaAWRHIqLP9TQSbDKZg4UOJSfe8HmAaYS1uvUlVbF0NwYUO0w3rE+eBfUKpBd0df0cm5SO51iwt1rSERWUk41fpaZ+VJdwvaJqZF2YBH5m3wwq7lnCtnKW87A5U9e1lmWzoY8LcJJ1BUPlyN+pZtnCt2HIZr41hS+QN9EDJcbjbM5+2FYEBYUZ2VUM2RSZDUMLMu3Tz4hNsD6ybDb2zeqXqsik788C1zFis3tDJ/PsVvqYohcRRYLGn3F7E5s0q7YN8kc1idvh+zJGbALX46M5DZUUIe4FNQrDgA0y2/cICNnkKywX1oVOHe7YRAdsUq+eqsRIQ0bm2KxP5yTbgv+5Jk/5LoKpQOm5Gn3rq0a0XYKsim65qQ/YFN1B7bFoNRDIKpty8yikdYM7V94MrUBkyL6OEmi/Im6S7dg7CJNBn03otWabTYrcVTZFv+emcvw822MTRSX63FTTz0RJocumrLs3Fo0inGh2EtAZ5tbXKjP38pSq6sgEfDh1uriDzD6b2A/WYxPK1gewX8sYqrLLbNqtAkq+og3ncNMSedxCZj/lIIFQj+1xDdIMn3EtSTbNUtedz3nzK4FAZis4C5qOFgp15UmRAq16eRbKLWQMfhnX/LdMy32YZv0k42nH0fdw1jNd8rs5HwOGoKfCQYLyF1m4dwIvriB6WnhxGuEJ98VZwLvW7wT8gq8i/SPgu9bvBNGnM3jx4sVfwxe+kXOk",
+    "records": [
+      {
+        "kind": "coordinate",
+        "reading": "whole_word",
+        "original_word": ".д\\е4",
+        "replacement": "7.♘e4",
+        "changed": true,
+        "bbox": [
+          19.19999954223633,
+          0.6800292968750057,
+          53.14787933349609,
+          10.529833221435553
+        ],
+        "characters": [
+          {
+            "char": "7",
+            "bbox": [
+              19.2,
+              1.6399975585937554,
+              24.720000000000002,
+              8.359997558593754
+            ],
+            "similarity": 0.9619
+          },
+          {
+            "char": ".",
+            "bbox": [
+              27.12,
+              6.199997558593751,
+              29.52,
+              8.359997558593754
+            ],
+            "similarity": 0.9499
+          },
+          {
+            "char": "♘",
+            "bbox": [
+              30.960000000000004,
+              0.480000000000004,
+              39.120000000000005,
+              8.640000000000008
+            ],
+            "similarity": 0.9063
+          },
+          {
+            "char": "e",
+            "bbox": [
+              40.08,
+              3.0799975585937602,
+              45.599999999999994,
+              8.359997558593754
+            ],
+            "similarity": 0.9688
+          },
+          {
+            "char": "4",
+            "bbox": [
+              47.519999999999996,
+              1.6399975585937554,
+              53.28,
+              8.359997558593754
+            ],
+            "similarity": 0.9625
+          }
+        ],
+        "style": "bold",
+        "expanded_clipped_edge": false,
+        "isolated_text_band": false,
+        "joined_number_fragment": false,
+        "profile": "bold-algebraic-v2-coverage-v2",
+        "line": 0
+      },
+      {
+        "symbol": "♘",
+        "bbox": [
+          30.960000000000004,
+          0.480000000000004,
+          39.120000000000005,
+          8.640000000000008
+        ],
+        "similarity": 0.9063
+      }
+    ],
+    "source": {
+      "book": "Kasparov_MGP_Vol_1.djvu",
+      "file_page": 20,
+      "dpi": 300,
+      "bbox_pixels": [
+        97,
+        165,
+        431,
+        211
+      ]
+    }
+  },
+  {
+    "text": "1 1.a3",
+    "expected": "11.a3",
+    "width": 277,
+    "height": 46,
+    "samples": "eJztWQuu3CAM5Gi+mY/mo6WbTQB/xgHerl6lFqtSXzBjjyd8s8exbdu2bdu2bfvbxqUkHmF+/XvZb9Lpufm3coMcJROFSjWAqvFS6tLgssxSijFaDnC+6UIWe9K8OFHnS0kGYSxK1yQti3PZVF3BNzSV+mchVIAkJtsCJISAKdkHCCYqD+WudHbm5jVZHSzgfUqIeHpakRxixBYTJCFkpc/AXxJlSRXEnWDIRVHGdEwCG4IffGtFdZOfwDt3FJIXRVGBMzbToiyvk1AUQDIxlT1hG0UBUfh29m2ExmSmRXmcPu+968rdG6X+/bxcQ6wmJq6RjroBeVFidF0DOTL5a54WBZRTa6Yy6Jm/nBTbk2vuwhJClllRLnd/lNC72ueixGkSXkEqSopVDpxVi/Y0fXwJikp+pD0PQQllOROORXGz7DRRXjGjQSaxlCE6767iiigdV3UHCUQUA46+sSixrsYuDARPIMOqcSD3fxbYReMlUTojPD8BEhQ+gDZ+3NZ5FWikSYrtj6KbgSZ0TIhCVwJRQDU/cGm+FuhLd59zlrFioKofaZJiO19bftDk3XskisrbS1Ux4CyYEmV8TlFrhwdnoiTYrpAO0RiwC9mwkT+5VhgY1jYlCvBp0xMgGymZsAHbnsl47u7hSPrAkYoZP2qhoKLs+6KILUp1Jt8OLvcI23ASzxl+QTke10S2jaZnHNnfEwUd5znrMYdV3Z+Wb3FRwEDkZPawzb5Y+FAUeMVJO/EMVmyc9kSOko5DmCFZMq6aqcKfNvpEFFhXjAM9GZZtb/fYps/MFdUxtyo48RPGIA2ZML2Y82whhz1m9c4+iq/Lt1psJgpp3NR33wsqF2vWxxTRtX1jTdHnguYX5zjUvUKtCzC2wzpRPIX7jNvuhmpdxqLU4yubsRkXq3VR0FcNz1/PtZvpazw1ziXZCgJW9RcFF6fBmL/d2hh+uiv4APWBKHaxAKI4YxjbY8M2bRgERiC60HlS9ouWqacb0uQjUXTtNC7MxE6xWFEB6TP+MDkf8QNOyQ7aIOi0KHgHYexwd90UCz2C0o9EIR3hcvm3hTV53JJBQjupFX82bzuWFc+zGRaMlc49MAIcqWYEEdJFzhh52MBnNhm924vuHDQB0TPs4QeLHmOVEoco4gKfPeS6D7sd/CXM6Mfc+1dTwPp9Ozm8z/W/00r77fjtENHf0tPUEFuzXIJ4ZrejNwbov23/TaHbtm3btm3btm3bXvYHHjboSA==",
+    "records": [
+      {
+        "kind": "coordinate",
+        "reading": "whole_word",
+        "original_word": "1.а3",
+        "replacement": "1.a3",
+        "changed": true,
+        "bbox": [
+          19.199993896484386,
+          0.5102099609375017,
+          39.470379638671886,
+          10.360002441406252
+        ],
+        "characters": [
+          {
+            "char": "1",
+            "bbox": [
+              19.200000000000017,
+              1.7101660156250063,
+              22.80000000000001,
+              8.430166015625034
+            ],
+            "similarity": 0.9649
+          },
+          {
+            "char": ".",
+            "bbox": [
+              25.200000000000017,
+              6.270166015624952,
+              27.360000000000014,
+              8.430166015625034
+            ],
+            "similarity": 0.9705
+          },
+          {
+            "char": "a",
+            "bbox": [
+              28.080000000000013,
+              3.150166015624947,
+              33.60000000000002,
+              8.430166015625034
+            ],
+            "similarity": 0.9323
+          },
+          {
+            "char": "3",
+            "bbox": [
+              34.08000000000001,
+              1.7101660156250063,
+              39.60000000000002,
+              8.430166015625034
+            ],
+            "similarity": 0.9647
+          }
+        ],
+        "style": "bold",
+        "expanded_clipped_edge": false,
+        "isolated_text_band": false,
+        "joined_number_fragment": false,
+        "profile": "bold-algebraic-v2-coverage-v2",
+        "line": 0
+      },
+      {
+        "symbol": "♕",
+        "bbox": [
+          30.24000000000001,
+          -22.08,
+          38.640000000000015,
+          -13.920000000000002
+        ],
+        "similarity": 0.923
+      }
+    ],
+    "source": {
+      "book": "Kasparov_MGP_Vol_1.djvu",
+      "file_page": 22,
+      "dpi": 300,
+      "bbox_pixels": [
+        905,
+        492,
+        1182,
+        538
+      ]
+    }
+  },
+  {
+    "text": "27.♗ @7",
+    "expected": "27.♗d7",
+    "width": 301,
+    "height": 49,
+    "samples": "eJztWgmS4zAI9NP4GU/jaVkfss0tbGcmmyl11dQkEoKmhQ4neb0GBgYGSiCY8NMcvgU0zYBPs/gSTCvo0zS+A5tY+Gka34E/LhZuINlKcwti6yVybRxQUazmkJOg2f3WvFNKh697ozLxU3kTcOIQoWXXjh6NfRT0DLVDN1p4TpC1kXw70e8ADDs6+lz2vYpZHW6TTqnhkRqp9xLRcEsJagMfwKFHSV9PLILdw/IivT4c4uj3pZyFNXp0a/lfAU0O9s7rYu03LMItnWwpPhNL2ICXyhUZanAZokeoJNbSTytvbOwLoTMqF8TS46/IUIPP0CNUIUHTsQShvQ1W4nxaQUksDEKdOu1H5s+LtdTAFovAMCSc1kN4/quRwG0Nbna08fdC+lkhwJL4fH2wVEInyJtEKmUN7oDNDJnOsy/btLehTATL2amfi1QWgHBgbPA3xcr6DDMG2HYs2A3J+JJZRmL1pkYVpzH6ebHO4Jj09W4D4P0/4Gl1Y2pUeRpOwRy8D5Cwpx57Zre+aHag7F2tbLjTLDoepAN0x2dEHyLVo1hYxzH4Imo+hX3xctBf87lYFMzB20BhaMnNdhpLbI/CtF8k/BgYusyKrgGYjZ5A6ox9DAhDL2DEqO7IOEPZqi+lxiyt41BqCNy+Dfk1Kq06DamW6FKKk2uUb57WWUy2S/UeuFYU8yoRWBfiilAsUFGtg8LUBIxYKn2ud8C3S7LdlwprSQIWoQBBu1Ne9Ec0DbXCCsTiqfS53gBj524SuZQK2XUxEgu5UW3HCvasXiqP0VmD4bIg96NbTldPr3Ljl0C1NDxOvVQeg2eHHQNBwGeltHLFAmXKbVi+eWk4nLupPIWoBHC+JIjYO4/9PAdviGw9Iwd8KCVuw+tUagJcweQBfQPBXu847asawXhqzW0gPym4oee1u+dYrjqLe4JUYgownuC2voxYYL1Yj0Hn6fTCpvPfiHXGiW+rUqzgqe8Eam+uY1ADCsTRtHxMrHhZ3BErUMtlQ0XiGKZyX5RezCBOwl6y1dpo9dogrhaAjlbfsT4jFv+422G6JLdeyO1M7wPpMDylIu349MgqkowuMLW9v3+jBDNYp3JZi98DtTPvvKrut1Z9Gen8hKGOH/tFw8DAwMDAwMDAwMDAwMBfwT8zZ4j5",
+    "records": [
+      {
+        "kind": "coordinate",
+        "reading": "number_only",
+        "original_word": "27.♗",
+        "replacement": "27.♗",
+        "changed": false,
+        "bbox": [
+          19.200000000000017,
+          0.5115820312499864,
+          45.120000000000005,
+          11.071582031249932
+        ],
+        "characters": [
+          {
+            "char": "2",
+            "bbox": [
+              19.680000000000035,
+              1.951582031250041,
+              24.960000000000036,
+              8.671582031249955
+            ],
+            "similarity": 0.9232
+          },
+          {
+            "char": "7",
+            "bbox": [
+              26.640000000000015,
+              1.951582031250041,
+              32.160000000000025,
+              8.671582031249955
+            ],
+            "similarity": 0.9821
+          },
+          {
+            "char": ".",
+            "bbox": [
+              33.360000000000014,
+              6.511582031249986,
+              35.76000000000002,
+              8.671582031249955
+            ],
+            "similarity": 0.9642
+          }
+        ],
+        "style": "bold",
+        "expanded_clipped_edge": true,
+        "isolated_text_band": false,
+        "joined_number_fragment": false,
+        "profile": "bold-algebraic-v2-coverage-v2",
+        "line": 0
+      },
+      {
+        "symbol": "♗",
+        "bbox": [
+          36.72000000000003,
+          0.7199999999999989,
+          44.880000000000024,
+          8.879999999999995
+        ],
+        "similarity": 0.9131
+      },
+      {
+        "symbol": "♗",
+        "bbox": [
+          68.64000000000001,
+          11.759999999999991,
+          76.32000000000002,
+          19.680000000000007
+        ],
+        "similarity": 0.9284
+      }
+    ],
+    "source": {
+      "book": "Kasparov_MGP_Vol_1.djvu",
+      "file_page": 20,
+      "dpi": 300,
+      "bbox_pixels": [
+        741,
+        862,
+        1042,
+        911
+      ]
+    }
+  },
+  {
+    "text": "22.\\п 4?!",
+    "expected": "22.♘h4?!",
+    "width": 341,
+    "height": 50,
+    "samples": "eJztWlmyozAM9NF0Mx1NR2MCAVtLe4HAJPXK/ROIZKndlhdIlmViYmLix0FJtg/6Mo+/BEkp0SptmqreBk6rqpTSVPU+bKIeIPk2nT+CXU+W/fPbfDyYODFvY/9IeJE9+qumWIJ9tdKhEY9G3eNldZMPvIZ9IeaLBA8gbps5GKQbVspE6jM4DUoWfgns2etRibcrenU9qpo7JbFxlYDxtSsMo+BNrvzgHEoBAlJX7Rji6XI1rvZC0IOqRQrEGLRpRh5wuYooWpv7kKqxTryqPBhMdGIdsUX7hKiPnE0kkjNckLlLBM0ssgIyyIVAOrEOCHhl81jwyPEuoErUmZC5W6qEukTmm8Hpb+lpX8TrXPCHRX1tn6Lpq0zrLW17r7L3StVIn3di03CsmNw8EmVCoh68v12pSzklERJVynkFlASGGAXyFWlZdL/lndnu4I5SEHVNwuq0d1HUZzaqAg7kEImB4SUjUHFPaNljKbL4GeDXJphXov3rlVpQuiDIrMhDu4ljmjEwwLXcqZqPm6OiHrzGjhZwHO9GIQfN9YKyENsZrQUqpoaqR8bMjJcIAY1PbFQPT/8iGqSiVJBmGDbSkOatbiqiolOX5CtEjEDbnxFVkUPm4cm/mN6RiSd9UTlkpKUhqj4eFF5nRH1SVjTgCkqDziqkhIvn1dLPvqgHo6UlqmqpeA2JOvr4cR23abq5UolJyR359/ZuzyZ9Yx2UNeSu8BqrVDVqj6CjKZ5kGAfP9aT0OlhxeGL3IbeAUYailyLnda18f0bUTneug2qk3zij6dbP1+PX8QLF0c63bBPmFHx49teHpXpg+YVzakdTXSl9DpRrS9534qzvC19MH4pqkgzuQfykqEo0AebKS4EqtC/5YeKc41ZRfS0M/awwoPtlnNAU2QP2VzNrPyUMAx/f3FOphDUdw4OVqjRFo6bNyC6wW3xo6pvkJ9XLoooPh0SVkd++PhiPDqhNHHYNvYAHod3zao5nA7ONw8U1I3MkP6Njq5y5rxjViH8KXA/csasAlW7tpAXls4G5G6e+mZdjyWADz++ZSr0marE3KhVM/gFRkQ7Vl05caXXiLRW3PC7iQVEJMaaPRPXxuqJGAsGr5XERD4qatjUw7T/FlNWRbeD3bW0iI1/EfrCBJ/iMqPphqUA6dsW1KWqjsZuhNXmskZ2hu6bKUkXe/ho+VyGsQduPfCYNA+j2lFZ6YL3H45E9Cd42H5OjrSYM1YMd3SqM6k6/CFbX8eQo7o9ZvPxPbP8fCyUyMTExMTExMTExMTExMTExMTGCf4XzBNU=",
+    "records": [
+      {
+        "kind": "coordinate",
+        "reading": "number_only",
+        "original_word": "22.\\п",
+        "replacement": "22.\\п",
+        "changed": false,
+        "bbox": [
+          19.19999999999999,
+          0.510166015624975,
+          54.71999999999997,
+          11.31016601562493
+        ],
+        "characters": [
+          {
+            "char": "2",
+            "bbox": [
+              19.439999999999998,
+              1.9501660156250296,
+              24.960000000000008,
+              8.670166015625057
+            ],
+            "similarity": 0.9556
+          },
+          {
+            "char": "2",
+            "bbox": [
+              27.120000000000005,
+              1.9501660156250296,
+              32.639999999999986,
+              8.670166015625057
+            ],
+            "similarity": 0.9419
+          },
+          {
+            "char": ".",
+            "bbox": [
+              35.03999999999999,
+              6.750166015624984,
+              36.96000000000001,
+              8.670166015625057
+            ],
+            "similarity": 0.9919
+          }
+        ],
+        "style": "bold",
+        "expanded_clipped_edge": true,
+        "isolated_text_band": false,
+        "joined_number_fragment": false,
+        "profile": "bold-algebraic-v2-coverage-v2",
+        "line": 0
+      },
+      {
+        "symbol": "♘",
+        "bbox": [
+          39.120000000000005,
+          0.7200000000000273,
+          47.28,
+          8.879999999999995
+        ],
+        "similarity": 0.8673
+      }
+    ],
+    "source": {
+      "book": "Kasparov_MGP_Vol_1.djvu",
+      "file_page": 22,
+      "dpi": 300,
+      "bbox_pixels": [
+        694,
+        1879,
+        1035,
+        1929
+      ]
+    }
+  }
+]

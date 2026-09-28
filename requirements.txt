@@ -1,3 +1,5 @@
 chess>=1.11
 PyMuPDF>=1.24
 customtkinter>=5.2
+pymorphy3==2.0.6
+pymorphy3-dicts-ru==2.4.417150.4580142

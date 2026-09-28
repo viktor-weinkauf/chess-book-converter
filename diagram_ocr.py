@@ -137,13 +137,54 @@ def detect(page, dpi=300):
     return boards
 
 
-def starting_positions(placement, number, black, first_move, parse_move, langs):
-    """Both orientations must compete. Never guess castling rights from an image.
+def possible_en_passant(board):
+    """Legally capturable targets whose preceding double pawn push is possible.
 
-    This initial implementation accepts setups only when neither king is on
-    its original square and no en-passant capture could exist. Other positions
-    remain in the report for review, even if their piece placement is clear.
+    An irrelevant historical target is equivalent to '-' in python-chess's
+    canonical FEN. Neither a pawn on the fifth rank nor an adjacent enemy pawn
+    alone establishes a legal en-passant capture.
     """
+    targets = [None]
+    last_color = not board.turn
+    landing_rank, start_rank, target_rank = (3, 1, 2) if last_color else (4, 6, 5)
+    for file in range(8):
+        landing = chess.square(file, landing_rank)
+        start = chess.square(file, start_rank)
+        target = chess.square(file, target_rank)
+        pawn = chess.Piece(chess.PAWN, last_color)
+        if (board.piece_at(landing) != pawn or board.piece_at(start) is not None
+                or board.piece_at(target) is not None):
+            continue
+        trial = board.copy(stack=False)
+        trial.ep_square = target
+        if not trial.is_valid() or not trial.has_legal_en_passant():
+            continue
+        previous = board.copy(stack=False)
+        previous.turn = last_color
+        previous.ep_square = None
+        previous.remove_piece_at(landing)
+        previous.set_piece_at(start, pawn)
+        if previous.is_valid() and chess.Move(start, landing) in previous.legal_moves:
+            targets.append(target)
+    return targets
+
+
+def possible_castling_rights(board):
+    """Keep every compatible history; a home-square king without a rook is safe."""
+    eligible = []
+    for color, king, rooks in ((chess.WHITE, chess.E1, (chess.A1, chess.H1)),
+                               (chess.BLACK, chess.E8, (chess.A8, chess.H8))):
+        if board.king(color) == king:
+            eligible.extend(square for square in rooks
+                            if board.piece_at(square) == chess.Piece(chess.ROOK, color))
+    rights = [0]
+    for square in eligible:
+        rights += [value | chess.BB_SQUARES[square] for value in rights]
+    return rights
+
+
+def starting_position_analysis(placement, number, black, first_move, parse_move, langs):
+    """Separate unread cells, orientation, notation and historical FEN uncertainty."""
     plain = chess.Board(placement + " w - - 0 1")
     candidates = []
     for rotated in (False,True):
@@ -152,24 +193,62 @@ def starting_positions(placement, number, black, first_move, parse_move, langs):
             board.set_piece_at(63-square if rotated else square,piece)
         board.turn = not black
         board.fullmove_number = number
-        if board.king(chess.WHITE) == chess.E1 or board.king(chess.BLACK) == chess.E8:
-            continue
-        # Potential en-passant history cannot be recovered from piece placement.
-        ep_rank = 4 if board.turn else 3
-        if any(board.piece_at(chess.square(f,ep_rank)) == chess.Piece(chess.PAWN,board.turn)
-               for f in range(8)):
-            continue
         if not board.is_valid():
             continue
-        move,_ = parse_move(board,first_move,langs)
-        if move is not None:
-            candidates.append((board.fen(), "black_bottom" if rotated else "white_bottom"))
-    return candidates
+        for rights in possible_castling_rights(board):
+            for target in possible_en_passant(board):
+                trial = board.copy(stack=False)
+                trial.castling_rights, trial.ep_square = rights, target
+                if not trial.is_valid():
+                    continue
+                move,_ = parse_move(trial,first_move,langs)
+                if move is not None:
+                    candidates.append({"fen":trial.fen(),
+                                       "orientation":"black_bottom" if rotated else "white_bottom"})
+    unknown = []
+    for field, index in (("castling_rights",2),("en_passant",3)):
+        if len({c["fen"].split()[index] for c in candidates}) > 1:
+            unknown.append(field)
+    orientations = {c["orientation"] for c in candidates}
+    status = ("incompatible_notation_or_position" if not candidates else
+              "ambiguous_orientation" if len(orientations)>1 else
+              "unresolved_history" if len(candidates)>1 else "resolved")
+    return {"status":status, "candidates":candidates, "unknown_fields":unknown,
+            "halfmove_clock":"unknown; encoded as 0"}
+
+
+def starting_positions(placement, number, black, first_move, parse_move, langs):
+    result = starting_position_analysis(placement,number,black,first_move,parse_move,langs)
+    return [(c["fen"],c["orientation"]) for c in result["candidates"]] if result["status"] == "resolved" else []
+
+
+def continuation_equivalent_setup(assessment, first_move, parse_move, langs):
+    """Normalize irrelevant en-passant history, with explicit uncertainty.
+
+    The first printed move must be identical and lead to exactly the same
+    state for EVERY possible setup. This does not resolve the earlier history
+    and must never be presented as a fully recovered historical FEN.
+    """
+    if (assessment["status"] != "unresolved_history"
+            or assessment["unknown_fields"] != ["en_passant"]):
+        return None
+    states = set()
+    canonical = None
+    for candidate in assessment["candidates"]:
+        board = chess.Board(candidate["fen"])
+        move, _ = parse_move(board, first_move, langs)
+        if move is None or board.is_en_passant(move):
+            return None
+        if board.ep_square is None:
+            canonical = candidate
+        board.push(move)
+        states.add((candidate["orientation"], move.uci(), board.fen(en_passant="fen")))
+    return canonical if len(states) == 1 else None
 
 
 def valid_evidence(record):
     if (record.get("kind") != "board" or record.get("status") not in
-            {"recognized","unresolved_squares","initial_position","unresolved_context","position_marker"}
+            {"recognized","unresolved_squares","initial_position","unresolved_context","unresolved_history","position_marker"}
             or not isinstance(record.get("cells"),list) or len(record["cells"]) != 64
             or not re.fullmatch(r"__BOARD_\d+__",str(record.get("marker","")))):
         return False

@@ -20,8 +20,31 @@ This development version adds game-boundary detection, local batch processing,
 quality reports and regression tests. It is **not a lossless converter**:
 diagram recognition and visual notation reading support only calibrated print
 styles, and some analysis remains in comments rather than PGN variations.
-See [STRUCTURE_DEVELOPMENT_RU.md](STRUCTURE_DEVELOPMENT_RU.md) and the latest
+See [STRUCTURE_DEVELOPMENT_RU.md](STRUCTURE_DEVELOPMENT_RU.md) and the earlier
 [fine-print evaluation](FINE_PRINT_DEVELOPMENT_RU.md).
+Whole-chapter recovery of unmarked game headings, split table rows and damaged
+captures is described in [the Portisch evaluation notes](PORTISCH_DEVELOPMENT_RU.md).
+The window now defaults to **Главная линия; варианты — текстом**: extract the
+mainline and keep analysis as text at its printed position. Turn this switch
+off to use variation-tree extraction. This is still an experimental reader;
+see [mainline development notes](MAINLINE_DEVELOPMENT_RU.md).
+For ambiguous pawn ranks in table rows, mainline mode now checks a separately
+cached reading of the original page. Matching requires the same page, number
+and companion move; clear conflicting ranks are not replaced. See
+[original-row reading and evaluation](SOURCE_ROW_DEVELOPMENT_RU.md).
+Split half-rows now match across unequal OCR row counts without borrowing a
+Black move for White. A backward row number can be checked against three
+matching original-page rows. See [split-row evaluation](SPLIT_ROW_DEVELOPMENT_RU.md).
+Incomplete bold words can now be re-read from their original page pixels,
+including touching figurines and split numbers/squares. The latest
+[bold-text evaluation](BOLD_MAINLINE_DEVELOPMENT_RU.md) recorded 16/17 exact
+development mainlines, but neither of two new games was fully extracted.
+These results do not establish accuracy on arbitrary books.
+The subsequent [row and game-boundary evaluation](ROW_BOUNDARY_DEVELOPMENT_RU.md)
+restores the full Spassky–Yukhtman mainline (59 plies) and finds the previously
+missed Anderssen–Kieseritzky heading; that game still stops after four plies.
+Targeted original-page layout retries separate interleaved columns and leave
+the primary OCR cache intact.
 
 ## Setup
 
@@ -50,6 +73,7 @@ From the command line:
 
 ```
 python chess_converter.py book.pdf games.pgn --pages 94-96
+python chess_converter.py book.djvu games.pgn --lang ru --mainline-only
 python chess_converter.py games.pgn book.pdf --pieces figurines
 ```
 
@@ -149,6 +173,34 @@ improves from 90 to 95 of 272 paths, with no unexpected paths in either example.
 This is development-corpus coverage, not general accuracy on unseen books.
 See [split-word and variation-tree results](SPEIJER_TREE_DEVELOPMENT_RU.md).
 
+The next stage repairs Russian word wraps across adjacent lines using a local,
+versioned dictionary. It retains real hyphens when the hyphenated spelling is
+the only exact match; unknown and ambiguous readings remain unchanged. Both
+source lines and every decision are recorded in `text_normalization` in the
+quality report. No online service or reference PGN is used. Reinstall
+`requirements.txt` when upgrading an earlier copy to get the dictionary.
+The checked Euwe-Speijer example now matches the complete 101-path tree,
+comments, NAGs and branch order. See [comment results](COMMENTS_DEVELOPMENT_RU.md)
+for the new-page check and remaining limitations.
+
+Diagram refinement now reads all 64 squares of the checked Alekhine-Euwe
+starting diagram. The report distinguishes unread squares from unknown
+castling/en-passant history and lists compatible FEN candidates. It exports
+a setup only when a single orientation and historical state fit the printed
+first move. Pawns without a legal en-passant capture and home-square kings
+without a corresponding rook no longer block otherwise unambiguous setups.
+The Alekhine-Euwe example still needs history review; it is not exported with
+an assumed en-passant field. See [diagram results](DIAGRAM_DEVELOPMENT_RU.md).
+
+Printed move numbers and the side to move are now checked during extraction.
+A missing turn stops the mainline instead of shifting later legal moves into
+its place. The PGN is marked incomplete with `Result "*"` and `MissingMove`;
+a printed outcome is retained separately as `SourceResult`. Unread OCR lines
+and any unattached analysis are kept in the quality report. Narrow row repairs
+require exact moves and independent sequence evidence. Eight previously exact
+mainlines in the 13-game local corpus remain exact. See
+[move-sequence checks and limitations](MOVE_SEQUENCE_DEVELOPMENT_RU.md).
+
 ```
 pip install -r requirements-dev.txt
 python -m pytest -q
@@ -169,8 +221,8 @@ Keep private books and reference excerpts out of the public repository.
 The public test suite includes small notation/board fixtures and factual
 mainline PGNs. Full annotated reference PGNs and the transcribed book passage
 remain in the local evaluation bundle and are ignored by Git. Three tests
-explicitly skip when those optional files are absent: the public suite has
-223 passing tests and 3 skips; the local suite runs all 226 tests.
+explicitly skip when those optional files are absent; the local suite also
+runs these three private-reference checks.
 The optional files, placed in `tests/fixtures`, are
 `euwe-speijer-1924-checked-tree.pgn`, `euwe-capablanca-1928-checked-tree.pgn`
 and `page18-checked-notation.txt`. The converter never reads reference PGNs
@@ -188,3 +240,6 @@ and returns code 2 when the mainline matches but some branches are missing.
 - The files in `tessdata` come from
   [tesseract-ocr/tessdata_best](https://github.com/tesseract-ocr/tessdata_best)
   and are under the Apache-2.0 license ([tessdata/LICENSE](tessdata/LICENSE)).
+- Russian word-wrap checks use [pymorphy3](https://pypi.org/project/pymorphy3/)
+  (MIT) and [pymorphy3-dicts-ru](https://pypi.org/project/pymorphy3-dicts-ru/)
+  (MIT package code; OpenCorpora dictionary data under CC BY-SA 3.0).

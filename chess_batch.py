@@ -8,6 +8,7 @@ from pathlib import Path
 
 import chess
 import fitz
+import comment_text
 
 from chess_converter import BOOK_TYPES, ReviewRequired, convert, djvu_tool
 from conversion_quality import report_path_for, sha256_file, write_json
@@ -29,6 +30,7 @@ def pipeline_fingerprint():
             # Missing DjVu tools are diagnosed per DjVu job by the converter.
             digest.update(type(exc).__name__.encode())
     digest.update(f"{sys.version_info[:3]} {chess.__version__} {fitz.VersionBind}".encode())
+    digest.update(comment_text.dictionary_fingerprint().encode())
     return digest.hexdigest()
 
 
@@ -108,6 +110,7 @@ def main():
     parser.add_argument("--coordinate-ocr", default="auto", choices=("auto", "off"))
     parser.add_argument("--strict", action="store_true", help="save reports but reject PGNs with quality issues")
     parser.add_argument("--no-comments", action="store_true")
+    parser.add_argument("--mainline-only", action="store_true", help="extract mainlines with analysis as text comments")
     parser.add_argument("--force", action="store_true", help="reconvert even unchanged completed jobs")
     args = parser.parse_args()
     try:
@@ -115,6 +118,7 @@ def main():
                            {"lang": args.lang, "ocr": args.ocr, "strict": args.strict,
                             "figurine_ocr": args.figurine_ocr,
                             "coordinate_ocr": args.coordinate_ocr,
+                            "mainline_only": args.mainline_only,
                             "keep_text": not args.no_comments}, args.force)
     except (ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
