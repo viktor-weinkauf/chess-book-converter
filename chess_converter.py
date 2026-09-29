@@ -38,6 +38,7 @@ import figurine_ocr
 import coordinate_ocr
 import bold_ocr
 import page_layout
+import table_row_ocr
 import diagram_ocr
 import diagram_refinement
 import comment_text
@@ -53,7 +54,7 @@ TESSDATA_DIRS = [Path(__file__).resolve().parent / "tessdata",
                  Path(r"C:\Program Files\Tesseract-OCR\tessdata")]
 OCR_DPI = 300
 ALT_OCR_DPI = 400  # table books are read a second time: rows the first reading damaged
-OCR_CACHE_VERSION = 21  # consume split square fragments only once after visual repair
+OCR_CACHE_VERSION = 22  # tighten double-height words from peer lines and source ink
 OCR_LANGS = {"en": "eng", "ru": "rus+eng", "de": "deu+eng"}
 # Pages are read in parallel, one thread each: more workers than this did not help
 OCR_WORKERS = max(1, min(6, (os.cpu_count() or 3) // 3))
@@ -285,13 +286,15 @@ def ocr_layout(page, lang, tessdata, dpi, glyphs, coordinates="auto", evidence=N
     if gap is None:
         if not glyphs and coordinates == "off" and not markers:
             return page.get_text(textpage=textpage)
+        geometry = []
+        words = page_layout.repair_word_boxes(page, words, dpi, geometry)
         restored = figurine_ocr.repair_words(page, words, glyphs, lang, tessdata, dpi) if glyphs else words
         readings = []
         if coordinates == "auto":
             restored = coordinate_ocr.read_words(page, restored, glyphs, dpi, readings)
         text = lines_text(list(restored) + list(markers), width, readings)
         if evidence is not None:
-            evidence.extend(readings)
+            evidence.extend(readings + geometry)
         return text
     regions = word_regions(list(words) + list(markers), gap, width)
     spacing = 8
@@ -313,15 +316,21 @@ def ocr_layout(page, lang, tessdata, dpi, glyphs, coordinates="auto", evidence=N
                                                           box.x1, box.y1 - region.y0 + y]})
             y += region.height + spacing
         textpage = stacked.get_textpage_ocr(language=lang, dpi=dpi, full=True, tessdata=tessdata)
-        restored = figurine_ocr.repair_words(stacked, stacked.get_text("words", textpage=textpage),
+        geometry = []
+        words = page_layout.repair_word_boxes(stacked, stacked.get_text("words", textpage=textpage), dpi, geometry)
+        restored = figurine_ocr.repair_words(stacked, words,
                                              moved_glyphs, lang, tessdata, dpi)
         readings = []
         if coordinates == "auto":
             restored = coordinate_ocr.read_words(stacked, restored, moved_glyphs, dpi, readings)
         text = lines_text(list(restored) + moved_markers, width, readings)
         coordinate_ocr.restore_coordinates(readings, offsets)
+        for record in geometry:
+            mapping = {'bbox': record['bbox'], 'characters': [{'bbox': record['original_bbox']}]}
+            coordinate_ocr.restore_coordinates([mapping], offsets)
+            record.update(bbox=mapping['bbox'], original_bbox=mapping['characters'][0]['bbox'])
         if evidence is not None:
-            evidence.extend(readings)
+            evidence.extend(readings + geometry)
         for moved in moved_glyphs:
             if "replacement" in moved:
                 glyphs[moved["index"]].update({k: moved[k] for k in (
@@ -456,7 +465,8 @@ def ocr_book(kind, path, indexes, lang, tmp, progress, dpi=OCR_DPI, figurines="a
             data = json.loads(cached(index).read_text(encoding="utf-8"))
             if (not isinstance(data["text"], str) or not isinstance(data["glyphs"], list)
                     or not all(isinstance(g, dict) and (isinstance(g.get("symbol"), str)
-                               or coordinate_ocr.valid_evidence(g) or diagram_ocr.valid_evidence(g))
+                               or coordinate_ocr.valid_evidence(g) or diagram_ocr.valid_evidence(g)
+                               or page_layout.valid_geometry(g))
                                and isinstance(g.get("bbox"), list) and len(g["bbox"]) == 4
                                and all(isinstance(v, (int, float)) for v in g["bbox"])
                                for g in data["glyphs"])):
@@ -534,7 +544,7 @@ OCR_QUOTE_COLON_RE = re.compile(r"(\S*[1-8a-hбЗтв]) «(?=\S{0,2}\d)")
 # "d5 : e4", "7 : gb", "Cd3 :h7?": a space on either side of the colon
 # (the check sign may be read as "--" or "-+": "Фa5: с7--")
 OCR_SPACED_CAPTURE_RE = re.compile(
-    r"(?<!\w)((?:(?:Кр|Kp|J[1IilT]|[KQRBNКФЛСC®♔♕♖♗♘])?[a-hiасе¢{0-9][1-8bdhlI|бЗз!?])"
+    r"(?<!\w)((?:(?:Кр|Kp|J[1IilT]|[KQRBNКФЛСC®♔♕♖♗♘])?[a-hiасе¢{0-9][1-8bdhlI|бЗзОоOo!?])"
     r"|[KQRBNКФЛСC®][A-ZА-Я0-9]{1,2}|Кр|Kp|[KQRBNКФЛСC♔♕♖♗♘]|\d{1,2})(?:[ \t]+:[ \t]*|[ \t]*:[ \t]+)"
     r"(?=[a-hiасеЬь¢{0-9][1-8bdhlI|ЗзбОо!?][+#!?×|-]*\.?(?:\s|$))")
 SPACED_CAPTURE_RE = re.compile(r"([a-hасе][1-8]|[KQRBNКФЛСКрCp]) *: +(?=[a-hасе][1-8])")
@@ -642,6 +652,20 @@ def split_move_evaluation(word):
     return [word]
 
 
+def split_glued_promotion(word):
+    """Restore only a missing space after an explicitly printed promotion.
+
+    Both moves must be complete notation and the following move must carry
+    its own number. No piece, square, turn or move number is invented.
+    """
+    match = re.fullmatch(
+        r'((?:\d{1,3}\.{1,3})?[a-hасе](?:[27]?[-x:][a-hасе])?[18]'
+        r'=?[QRBN♕♛♖♜♗♝♘♞][!?+#]*)'
+        r'(\d{1,3}\.{1,3}[KQRBN♔♚♕♛♖♜♗♝♘♞]?'
+        r'[a-hасе1-8]?[x:]?[a-hасе][1-8][!?+#]*[.,;]?)', word)
+    return [match[1], match[2]] if match else [word]
+
+
 def tokenize(pages, ocr_pages=frozenset(), start=1, boundaries=False, text_evidence=None):
     """Split the book into tokens: (kind, value, page, line).
     Kinds: num (value = (number, black)), word, open, close, fen, diagram.
@@ -653,7 +677,9 @@ def tokenize(pages, ocr_pages=frozenset(), start=1, boundaries=False, text_evide
 
     def add_words(chunk, page, line):
         ocr = page in ocr_pages
-        for word in (part for original in chunk.split() for part in split_move_evaluation(original)):
+        for word in (part for original in chunk.split()
+                     for separated in split_glued_promotion(original)
+                     for part in split_move_evaluation(separated)):
             if re.fullmatch(r"__BOARD_\d+__", word):
                 tokens.append(("board", word, page, line))
                 continue
@@ -711,6 +737,12 @@ def tokenize(pages, ocr_pages=frozenset(), start=1, boundaries=False, text_evide
                 continue
             if raw.strip().isdigit():  # page number
                 continue
+            # Joining a hyphenated prose word can leave a move number at the
+            # start of the next line. Keep its prose origin: it is not a newly
+            # printed table row ("продол- / жать 8...Фb6").
+            if (raw != original and re.match(r'^\s*\d{1,3}\.', raw)
+                    and re.match(r'^\s*[A-Za-zА-Яа-яЁё]+\s+\d{1,3}\.', original)):
+                tokens.append(('junk', '', page_no, line_no))
             if page_no in ocr_pages:
                 if ocr_junk(raw) and not re.fullmatch(r"__BOARD_\d+__",raw.strip()):
                     continue
@@ -1281,10 +1313,41 @@ class GameFinder:
     def readings(self, tokens, k):
         return [tokens[k][1]] + self.alternatives.get(k, [])
 
+    def ambiguous_piece_destination(self, board, tokens, k):
+        """A surviving piece and rank cannot choose between missing files.
+
+        Future legal moves do not establish which square was printed. An
+        exact aligned OCR reading can resolve the loss; look-ahead cannot.
+        """
+        if not self.mainline_only or tokens[k][2] not in self.ocr_pages:
+            return False
+        word = tokens[k][1].rstrip('.,;')
+        piece = FIGURINES.get(ord(word[0])) if word else None
+        if not piece or piece == 'P':
+            return False
+        rank = re.search(r'([1-8])[!?+#]*$', word)
+        if rank is None:
+            return False
+        # Keep established glyph confusions (e.g. cents sign for c, 1 for
+        # f). This guard concerns a missing/unreadable file, not every
+        # imperfect spelling. Strip the piece so B itself is not a file.
+        prefix = word[1:rank.start()].translate(OCR_SHAPES)
+        if re.search(r'[a-h0-9]', prefix, re.I):
+            return False
+        if any(parse_move(board, reading, self.ocr_langs)[0] is not None
+               for reading in self.readings(tokens, k)):
+            return False
+        destinations = {m.to_square for m in board.legal_moves
+                        if board.piece_at(m.from_square).symbol().upper() == piece
+                        and chess.square_rank(m.to_square) == int(rank[1]) - 1}
+        return len(destinations) > 1
+
     def parse_token(self, board, tokens, k):
         """Parse a move word; if it fails, try its other OCR readings. An exact
         reading wins over a look-alike one ("d2—d4" before "д2—04" = g2—g4)."""
         page = tokens[k][2]
+        if self.ambiguous_piece_destination(board, tokens, k):
+            return None, []
         if k in self.verified_tokens:
             return parse_move(board, tokens[k][1], self.ocr_langs)
         if self.mainline_only and page in self.ocr_pages and k in self.rows:
@@ -1316,6 +1379,8 @@ class GameFinder:
 
     def token_candidates(self, board, tokens, k, top=4):
         """candidate_moves over all OCR readings of a token: (distance, move), best first."""
+        if self.ambiguous_piece_destination(board, tokens, k):
+            return []
         if k in self.verified_tokens:
             move, _ = parse_move(board, tokens[k][1], self.ocr_langs)
             return [(0, move)] if move is not None else []
@@ -1332,6 +1397,8 @@ class GameFinder:
 
     def read_token(self, board, tokens, k, lenient=False):
         """read_ocr for a token: the best of all its OCR readings."""
+        if self.ambiguous_piece_destination(board, tokens, k):
+            return None, None
         if k in self.verified_tokens:
             move, _ = parse_move(board, tokens[k][1], self.ocr_langs)
             return move, 0 if move is not None else None
@@ -1498,6 +1565,8 @@ class GameFinder:
         """OCR garbled a move beyond recognition. Try every legal move and keep
         the one after which the most following book moves make sense."""
         self.repair_fit = 0  # how well the best repair fits; backtrack must beat it
+        if self.ambiguous_piece_destination(frame.board, tokens, i):
+            return None
         code = shape(SUFFIX_RE.match(tokens[i][1].rstrip(".,;")).group(1))
         in_row = self.table and i in self.rows  # table rows hold only moves: "М:eb" = f4:e5
         if not 1 <= len(code) <= 8 or not (in_row or re.search(r"[1-8?]", code)):
@@ -1508,6 +1577,13 @@ class GameFinder:
         # figurine, even though closest_move/candidate_moves respect it. A
         # damaged knight square must never be 'repaired' into a pawn move.
         word = tokens[i][1]
+        if (self.mainline_only and not self.table and not re.search(r'[a-hасе]', word, re.I)
+                and not re.search(r'[1-8][!?+#]*[.,;]?$', word)):
+            # A detached fragment has neither a file nor an ending rank.
+            # A leading OCR digit alone does not make it a complete move.
+            self.diagnostics.append({'code': 'ocr_incomplete_move_fragment', 'token': i,
+                                     'message': 'Mainline repair refused: the source fragment has neither a file nor a terminal rank.'})
+            return None
         piece = FIGURINES.get(ord(word[0])) if word else None
         legal = [m for m in frame.board.legal_moves
                  if not piece or frame.board.piece_at(m.from_square).symbol().upper() == piece]
@@ -1842,20 +1918,23 @@ class GameFinder:
                 return False
         return False
 
-    def stop_sequence(self, tokens, index):
+    def stop_sequence(self, tokens, index, *, ambiguous_destination=False):
         """Keep the known prefix; never bridge this gap with later legal moves."""
         self.finish_frames(1)
         frame = self.stack[0]
         if frame.sequence_gap is not None:
             return
         expected = f"{frame.board.fullmove_number}{'...' if frame.board.turn == chess.BLACK else '.'}"
-        num, black = tokens[index][1]
-        diagnostic = {"code": "move_sequence_gap", "severity": "error", "token": index,
+        num, black = tokens[index][1] if not ambiguous_destination else (None, None)
+        diagnostic = {"code": "ocr_ambiguous_destination" if ambiguous_destination else "move_sequence_gap", "severity": "error", "token": index,
                       "book_game": self.book_game, "expected_number": frame.board.fullmove_number,
                       "expected_side": "white" if frame.board.turn else "black",
                       "printed_number": num, "printed_side": "black" if black else "white",
                       "retained_plies": frame.board.ply() - self.game.board().ply(),
                       "message": "Printed move order is discontinuous. The mainline stops before the gap; later moves were not guessed."}
+        if ambiguous_destination:
+            diagnostic.update(printed_side=None, source_word=tokens[index][1],
+                              message="The piece and rank survive but the destination file is unreadable and several squares are legal. The mainline stops before this move.")
         # PGN promotes the first child to mainline even when it was read only
         # as analysis. With the actual next move missing, keep that analysis
         # in the report instead of accidentally exporting it as the game.
@@ -1949,6 +2028,7 @@ class GameFinder:
                 break
 
     def close(self, result=None):
+        pending_claim = self.mainline_claim
         self.text_depth = 0
         self.text_resume = False
         self.text_analysis = False
@@ -1956,6 +2036,18 @@ class GameFinder:
         if self.game is None:
             return
         root = self.stack[0]
+        if (self.mainline_only and pending_claim is not None
+                and pending_claim[0] == root.board.ply() and root.sequence_gap is None):
+            # EOF/result/next heading cannot certify a turn which was reserved
+            # in print but never read, even without a later numbered gap.
+            root.sequence_gap = {"code": "mainline_move_unresolved", "severity": "error",
+                                 "token": pending_claim[1], "end_token": max(pending_claim[1], self.position - 1),
+                                 "book_game": self.book_game,
+                                 "retained_plies": root.board.ply() - self.game.board().ply(),
+                                 "message": "A reserved printed mainline turn remained unread at the game boundary. Only the preceding moves were retained."}
+            self.diagnostics.append(root.sequence_gap)
+            self.game.headers.update(ExtractionStatus="incomplete",
+                                     MissingMove=f"{root.board.fullmove_number}{'...' if root.board.turn == chess.BLACK else '.'}")
         if root.sequence_gap is not None:
             if result is not None and result != "*":
                 self.game.headers["SourceResult"] = result
@@ -2177,6 +2269,16 @@ class GameFinder:
         kind, value, _, line = tokens[index]
         frame = self.stack[0]
         anchor = kind == "num" and (index in self.rows or index in self.visual_tokens)
+        # A separately printed, audited number can survive when the adjacent
+        # figurine is unreadable. Reserve that turn without promoting regular
+        # print to a bold mainline anchor or trusting the damaged move itself.
+        partial_anchor = (kind == "num" and not self.table and not self.text_depth
+                          and index in self.verified_tokens
+                          and self.matches(frame.board, *value)
+                          and index > 0 and tokens[index - 1][0] == "paragraph"
+                          and index + 1 < len(tokens) and tokens[index + 1][0] == "word"
+                          and tokens[index + 1][2:4] == tokens[index][2:4]
+                          and re.match(r"[♔-♟].*[1-8]", tokens[index + 1][1]))
         if anchor and self.matches(frame.board, *value):
             # An unread printed mainline move still owns this turn. A later
             # same-number move in prose cannot silently take its place.
@@ -2204,12 +2306,41 @@ class GameFinder:
                 reserved = index in self.later_bold_numbers
                 claimed = self.mainline_claim is not None and self.mainline_claim[0] == frame.board.ply()
                 backwards = 2 * (value[0] - 1) + int(value[1]) < frame.board.ply()
+                # A continuation introduced by "after" still belongs to the
+                # alternative just discussed, even if its next turn happens
+                # to match the board. Legality cannot establish mainline status.
+                preceding = (tokens[index - 1][1].casefold().rstrip(',:')
+                             if index > 0 and tokens[index - 1][0] == 'word' else '')
+                annotation_cue = (preceding in {'лучше', 'сильнее', 'энергичнее', 'скажем', 'например',
+                                                'better', 'stronger', 'preferable'}
+                                  or self.text_analysis and preceding in {'после', 'after'})
+                comparison = ' '.join(str(t[1]) for t in tokens[max(0, index - 3):index]
+                                      if t[0] == 'word').casefold()
+                annotation_cue = annotation_cue or bool(re.search(
+                    r"(?:точнее|лучше|сильнее|над[её]жнее|хуже)[,;:]?\s+чем\s*$|"
+                    r"(?:better|stronger|worse)\s+than\s*$|rather\s+than\s*$", comparison))
                 prose_number = (self.table and index not in self.rows) or (
-                    not anchor and (reserved or claimed or backwards or self.independent_variation_cue(tokens, index)))
+                    not anchor and (reserved or claimed or backwards or annotation_cue
+                                    or self.independent_variation_cue(tokens, index)))
                 if not prose_number:
+                    if partial_anchor:
+                        self.mainline_claim = (frame.board.ply(), index)
+                        self.diagnostics.append({"code": "mainline_turn_reserved", "severity": "info",
+                                                 "token": index,
+                                                 "message": "An audited number starts a separate notation paragraph. Its unread move cannot be replaced by an unanchored move from commentary."})
                     self.text_analysis = False
                     return False
+                if claimed and not anchor and self.matches(frame.board, *value):
+                    self.diagnostics.append({"code": "mainline_comment_substitution_blocked", "severity": "warning",
+                                             "token": index, "reserved_token": self.mainline_claim[1],
+                                             "message": "A same-number move in commentary was not allowed to replace the reserved unread mainline turn."})
                 self.text_analysis = True
+            elif (kind == 'word' and self.text_analysis and self.table and index not in self.rows
+                  and is_resign_word(value) and self.table_continues(tokens, index, frame.board)):
+                # A result of a game quoted in the annotation must not close
+                # this game when its next printed table turn still follows.
+                self.diagnostics.append(dict(code='analysis_result_retained', severity='info', token=index,
+                                             message='Resignation belongs to commentary; the next expected table row follows before the game boundary.'))
             elif kind == "word" and self.text_analysis and value.translate(DASHES) in RESULTS:
                 # A result inside an inline analytical sentence is not the
                 # game's result. A standalone result still closes the game.
@@ -2225,6 +2356,14 @@ class GameFinder:
         frame.expect = False
         self.analysis_tokens.add(index)
         return True
+
+    def table_continues(self, tokens, index, board):
+        for k in range(index + 1, len(tokens)):
+            if tokens[k][0] in {'game_boundary', 'game_end', 'game_result'}:
+                return False
+            if k in self.rows and tokens[k][0] == 'num':
+                return self.matches(board, *tokens[k][1])
+        return False
 
     def run(self, tokens, progress=None):
         self.numbered_sections = any(t[0] == "game_boundary" for t in tokens)
@@ -2261,6 +2400,24 @@ class GameFinder:
         Example: 'Белые сдались, на 20. Кр:g2 решает 20...Лg6+.' followed by
         'Примечания ...'. The biography after that credit is outside the game.
         """
+        import closing_comment
+        tail, reason = closing_comment.bounded_tail(tokens, index) if self.mainline_only else (None, None)
+        if tail is not None:
+            self.add_text(tail['text'])
+            self.skip_tokens.update(range(index + 1, tail['end']))
+            self.diagnostics.append(dict(code='closing_comment_retained', severity='info',
+                                         token=index, **tail,
+                                         message='Bounded post-result chess commentary retained as text at the last move.'))
+            self.close(result)
+            return
+        introduction = ' '.join(str(t[1]) for t in tokens[index + 1:index + 19] if t[0] == 'word')
+        if self.mainline_only and closing_comment.CONTEXT.search(introduction) and reason not in {'empty', 'no_chess_introduction'}:
+            self.diagnostics.append(dict(code='closing_comment_unresolved', severity='warning',
+                                         token=index, reason=reason,
+                                         message='Post-result commentary has no sufficiently clear boundary; it was not appended automatically.'))
+        if self.mainline_only:
+            self.close(result)
+            return
         line = int(tokens[index][3])
         paragraph_end = next((k for k in range(index+1,min(index+16,len(tokens)))
                               if tokens[k][0]=="paragraph" and tokens[k][3]-line<=4),None)
@@ -2310,7 +2467,10 @@ class GameFinder:
                 self.add_text(self.lines[int(line)])
                 self.stack[-1].expect = False
                 return
-            self.close(value)
+            if self.mainline_only and self.game is not None and self.stack[0].sequence_gap is None:
+                self.finish_resignation(value, tokens, i)
+            else:
+                self.close(value)
             return
         if kind == "junk" or i in self.skip_tokens:
             return
@@ -2635,10 +2795,12 @@ class GameFinder:
                 self.skip_tokens.update(range(i + 1, end))
             self.close("1-0" if side in WHITE_WORDS else "0-1")
             return
-        if (len(self.stack) == 1 and frame.node is not None and not frame.text
+        if (len(self.stack) == 1 and frame.node is not None
                 and re.fullmatch(r"(?:Ничья|Draw|Remis)[.!]?",value,re.I)
-                and self.token_of.get(id(frame.node)) == i-1
-                and tokens[i-1][3] == line):
+                and ((not frame.text and self.token_of.get(id(frame.node)) == i-1
+                      and tokens[i-1][3] == line)
+                     or (not self.text_analysis and value.endswith(('.', '!'))
+                         and re.match(r'^\s*' + re.escape(value) + r'\s+\S', self.lines[int(line)], re.I)))):
             self.finish_resignation("1/2-1/2",tokens,i)
             return
         if is_resign_word(value) and len(self.stack)>1:
@@ -2661,7 +2823,10 @@ class GameFinder:
             return
         if (plain in RESULTS and all(f.node is None for f in self.stack[1:])
                 and not (plain == "*" and page in self.ocr_pages)):  # OCR junk has "*"
-            self.close(RESULTS[plain])
+            if self.mainline_only and plain != '*' and len(self.stack) == 1:
+                self.finish_resignation(RESULTS[plain], tokens, i)
+            else:
+                self.close(RESULTS[plain])
             return
         if plain.rstrip(".,;") in NAG_TOKENS and frame.node is not None and not frame.text:
             frame.node.nags.add(NAG_TOKENS[plain.rstrip(".,;")])
@@ -2677,6 +2842,9 @@ class GameFinder:
             self.add_text(value)
             return
         if frame.expect and frame.base is not None:
+            if len(self.stack) == 1 and self.ambiguous_piece_destination(frame.board, tokens, i):
+                self.stop_sequence(tokens, i, ambiguous_destination=True)
+                return
             if ((len(self.stack)==1 or self.table) and i not in self.verified_tokens and page in self.ocr_pages and frame.node is not None
                     and any(blocked_long_move(frame.board, w) for w in self.readings(tokens, i))
                     and not any(d <= 0.6 for d, _ in self.token_candidates(frame.board, tokens, i))):
@@ -3603,7 +3771,7 @@ def refine_page_order(kind, src, tmp, pages, indexes, glyphs, progress, lang, fi
                     or not isinstance(saved['layout'], list) or not isinstance(saved['glyphs'], list)
                     or not all(isinstance(g, dict) and isinstance(g.get('bbox'), list) and len(g['bbox']) == 4
                                and (isinstance(g.get('symbol'), str) or coordinate_ocr.valid_evidence(g)
-                                    or diagram_ocr.valid_evidence(g)) for g in saved['glyphs'])):
+                                    or diagram_ocr.valid_evidence(g) or page_layout.valid_geometry(g)) for g in saved['glyphs'])):
                 raise ValueError('Invalid layout retry cache')
         except (OSError, ValueError, KeyError, TypeError):
             layout = []
@@ -3621,12 +3789,20 @@ def refine_page_order(kind, src, tmp, pages, indexes, glyphs, progress, lang, fi
                             'message': 'Original-page column separation restores a stranded heading or interleaved table rows; no reference moves were used.'})
 
 
-def refine_bold_words(kind, src, tmp, pages, evidence, progress, lang):
-    """Re-read only audited, partial bold words; the base OCR cache is unchanged."""
+def refine_bold_words(kind, src, tmp, pages, evidence, progress, lang, ocr_pages=()):
+    """Re-read incomplete bold words at known source locations; preserve cache."""
     pending = {r['page'] for r in evidence if r.get('dpi') == OCR_DPI
                and bold_ocr.pending(r, pages[r['page'] - 1])}
     pending.update(r['page'] for r in evidence if r.get('dpi') == OCR_DPI
                    and bold_ocr.unlocated(pages[r['page'] - 1]))
+    page_records = {number: [] for number in ocr_pages}
+    for record in evidence:
+        if record.get('dpi') == OCR_DPI:
+            page_records.setdefault(record['page'], []).append(record)
+    pending.update(number for number, records in page_records.items()
+                   if bold_ocr.unaudited_figures(pages[number - 1], records)
+                   or bold_ocr.unaudited_pawns(pages[number - 1], records)
+                   or bold_ocr.wrapped_figures(pages[number - 1]))
     for number in sorted(pending):
         progress(0.48, f"Checking incomplete bold words: page {number}")
         if kind == 'pdf':
@@ -3640,14 +3816,47 @@ def refine_bold_words(kind, src, tmp, pages, evidence, progress, lang):
             image.unlink()
         records = [r for r in evidence if r.get('page') == number and r.get('dpi') == OCR_DPI]
         pages[number - 1] = bold_ocr.refine_page(pix, pages[number - 1], records, OCR_DPI)
-        if bold_ocr.unlocated(pages[number - 1]):
+        if (bold_ocr.unlocated(pages[number - 1])
+                or bold_ocr.unaudited_pawns(pages[number - 1], records)
+                or bold_ocr.unaudited_figures(pages[number - 1], records)
+                or bold_ocr.wrapped_figures(pages[number - 1])):
             count = len(records)
             with fitz.open() as doc:
                 page = doc.new_page(width=pix.width*72/OCR_DPI, height=pix.height*72/OCR_DPI)
                 page.insert_image(page.rect, pixmap=pix)
                 pages[number - 1] = bold_ocr.refine_split_dot(
                     page, pages[number - 1], records, lang, find_tessdata(lang), OCR_DPI)
+                pages[number - 1] = bold_ocr.refine_unaudited_figures(
+                    page, pages[number - 1], records, lang, find_tessdata(lang), OCR_DPI)
+                pages[number - 1] = bold_ocr.refine_wrapped_figures(
+                    page, pages[number - 1], records, lang, find_tessdata(lang), OCR_DPI)
+                pages[number - 1] = bold_ocr.refine_unaudited_pawns(
+                    page, pages[number - 1], records, lang, find_tessdata(lang), OCR_DPI)
             evidence.extend({**r, 'page': number, 'dpi': OCR_DPI} for r in records[count:])
+
+
+def refine_black_rows(kind, src, tmp, pages, indexes, lang, progress, diagnostics):
+    for index in indexes:
+        if not table_row_ocr.targets(pages[index]):
+            continue
+        progress(0.49, f'Checking damaged black-move row: page {index + 1}')
+        image = None
+        with fitz.open(src if kind == 'pdf' else None) as doc:
+            if kind == 'pdf':
+                page = doc[index]
+            else:
+                image = Path(tmp) / f'black-row-{index}.pgm'
+                run_tool('ddjvu', '-format=pgm', f'-page={index + 1}', f'-scale={OCR_DPI}',
+                         'book.djvu', image.name, cwd=tmp)
+                pix = fitz.Pixmap(str(image))
+                page = doc.new_page(width=pix.width*72/OCR_DPI, height=pix.height*72/OCR_DPI)
+                page.insert_image(page.rect, pixmap=pix)
+            records = []
+            pages[index] = table_row_ocr.refine_page(page, pages[index], lang, find_tessdata(lang),
+                                                    visual_lines, column_gap, records)
+            diagnostics.extend({**r, 'page': index + 1} for r in records)
+        if image is not None:
+            image.unlink(missing_ok=True)
 
 
 def book_to_pgn(src, dst, options, progress):
@@ -3694,12 +3903,20 @@ def book_to_pgn(src, dst, options, progress):
                                          'message': f'Column-order retry failed; existing OCR retained: {exc}'})
         if todo and options.get('mainline_only') and coordinates == 'auto':
             try:
-                refine_bold_words(kind, src, tmp, pages, glyph_evidence, progress, OCR_LANGS[ocr_lang])
+                refine_bold_words(kind, src, tmp, pages, glyph_evidence, progress, OCR_LANGS[ocr_lang], ocr_pages)
             except Stopped:
                 raise
             except (UserError, OSError, RuntimeError, ValueError) as exc:
                 table_recoveries.append({'code': 'bold_source_unavailable',
                                          'message': f'Original-page bold reading failed; base OCR retained: {exc}'})
+        if todo and options.get('mainline_only'):
+            try:
+                refine_black_rows(kind, src, tmp, pages, todo, OCR_LANGS[ocr_lang], progress, table_recoveries)
+            except Stopped:
+                raise
+            except (UserError, OSError, RuntimeError, ValueError) as exc:
+                table_recoveries.append({'code': 'source_black_row_unavailable',
+                                         'message': f'Original-page row reread failed; existing OCR retained: {exc}'})
         cleaned = clean_running_headers(pages[first:end])
         tokens, lines = tokenize(cleaned, ocr_pages, start=first + 1, boundaries=True,
                                  text_evidence=text_evidence)
@@ -3766,7 +3983,10 @@ def book_to_pgn(src, dst, options, progress):
     }
     coordinate_evidence = [g for g in glyph_evidence if g.get("kind") == "coordinate"]
     board_evidence = [g for g in glyph_evidence if g.get("kind") == "board"]
-    glyph_evidence = [g for g in glyph_evidence if g.get("kind") not in {"coordinate","board"}]
+    geometry = [g for g in glyph_evidence if g.get("kind") == "word_geometry"]
+    quality['word_layout'] = {'adjusted_boxes': len(geometry), 'words': geometry,
+                              'note': 'Vertical bounds confirmed by peer OCR lines and ink bands; word text is unchanged. Coordinates refer to the original page.'}
+    glyph_evidence = [g for g in glyph_evidence if g.get("kind") not in {"coordinate","board","word_geometry"}]
     quality["diagram_ocr"] = {"detected":len(board_evidence),"boards":board_evidence,
                                "note":"Limited calibrated print style; every square must match. Unknown orientation/history is not guessed."}
     quality["coordinate_ocr"] = {"mode": coordinates, "recognized": len(coordinate_evidence),
@@ -3826,6 +4046,10 @@ def book_to_pgn(src, dst, options, progress):
     if gaps:
         message += (f"\n{gaps} games stop at a break in printed move order. "
                     "Fragments are marked incomplete; unread continuation is in the report.")
+    ambiguous = quality["summary"]["issue_counts"].get("ocr_ambiguous_destination", 0)
+    if ambiguous:
+        message += (f"\n{ambiguous} games stop before an unreadable destination square. "
+                    "Confirmed prefixes were saved; unread continuation is in the report.")
     if todo:
         message += (f"\n{len(todo)} pages were read with OCR ({ocr_lang}). "
                     "OCR makes mistakes: check these games in ChessBase.")

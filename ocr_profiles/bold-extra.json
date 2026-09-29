@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "id": "bold-source-v1",
+  "id": "bold-source-v2",
   "bitmap_size": 32,
   "templates": [
     {
-      "char": "\u2658f",
+      "char": "♘f",
       "width_pt": 12.24,
       "height_pt": 8.16,
       "bitmap": "0c4000000ee000000fe000000ff800080ffe003e0fff00ff0f2700ff1c0381ff1e00c1ff1e00c1ff1c1063fe381863fe303827fe703827ff703037ff607037fe60f03bfee3f039f8e3f019f8f36019f8fe6019f8fc6019f87cc019f87c8019f8018019f8030019f8030019f8032419f803fff9f803fff9f803fff8e000000000",
@@ -52,6 +52,24 @@
           260,
           1962
         ]
+      }
+    },
+    {
+      "char": "3",
+      "width_pt": 5.52,
+      "height_pt": 6.96,
+      "bitmap": "000200000fffff001fffffc01ffffff01ffffff81ffffff87ffffffe7ffffffe1c01fffe00007ffe00007ffe0003fffe03fffff803fffff003ffffc003ffffc003ffffc003fffff003fffff800007ffe00003ffe00003fff00003ffffc007ffffffffffffffffffe7ffffff87ffffff87ffffff07fffffc01fffff8001ffc000",
+      "source": {
+        "book": "Kasparov_MGP_Vol_1.djvu",
+        "file_page": 31,
+        "dpi": 300,
+        "bbox_pixels": [
+          325,
+          822,
+          348,
+          851
+        ],
+        "note": "Digit in the independently printed 7...d3?!, not the repaired 19...Qxf3 word."
       }
     }
   ]

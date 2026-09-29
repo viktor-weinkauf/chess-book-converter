@@ -1,0 +1,46 @@
+{
+  "text": "3.♗сё",
+  "expected": "3.♗c4",
+  "width": 125,
+  "height": 51,
+  "samples": "eJztl0mSwyAMRTmabqaj6Wi0zaAJgUln4UoVfxcD/0kCYSfno58S4XtsSCnRi+yUXoIXdsID/0qYRLBhCZ/DgQE0Zxc+RctZJBP/wfbnFJLXypXaBHwOk2XSQzM0sFcVBR6moIgTGe8xFa8V+84XErUfG2yYW/stX8IbDmv2sJU7rayhJoM6Cox9sC7GPgXGOBGLkTLY21F6nAJlpJUR6gpD1hUmXrNbVLswmJA1PBszshz0GS3hUvfZMWp7XSiYeRuG2JVJ/8Hm3vOKDkzUk8QZRi0v1Bvk65v0QyL9VMuvmvdPDww4LZ3BCO8PUSAP8EXv2jqDTnxsWXGGvAtHP6xUMmlnuuxUYAJIpeFIAsJt+PLeoOnUFLhzPCRNCGiz8/Va3Zm2usFzbe2NI//78Lab6ZEO9Z12FdVWPWylCTzsdVqORn6S5tfwuHbxDG/zSdkf4PUqKSd2lfjXcBSEupz1UlrY8YBsWZtOFH0kWcMaMdoDV04c2+lcrJ2ujIxcbQX2NlJRm7McfkvwW4N/uDdWH6ntC/pCEYVwfIb7XQy/tbSiGofwyVNrZeFxiEo4OsEGfAi4H4hPM/eTcAM++KKfj0OIMMQcJEIh3F2eZD8dZQ1ol/sE145o/6juIwi9R3iRvEAs+6YU5UA03idHR0dHR0e/pD9yBEuw",
+  "words": [
+    [
+      0.9600018310547114,
+      0.9600146484375074,
+      28.931956176757836,
+      11.050079650878914,
+      "3.2c4",
+      1,
+      8,
+      1
+    ]
+  ],
+  "records": [
+    {
+      "symbol": "♗",
+      "piece": "B",
+      "bbox": [
+        10.080000000000013,
+        0.720000000000006,
+        18.240000000000038,
+        8.88000000000001
+      ],
+      "similarity": 0.8897,
+      "profile": "classic-book-figurines-v2",
+      "original_word": "3.8",
+      "replacement": "3.♗"
+    }
+  ],
+  "source": {
+    "book": "Kasparov_MGP_Vol_1.djvu",
+    "file_page": 26,
+    "dpi": 300,
+    "bbox_pixels": [
+      938,
+      257,
+      1063,
+      308
+    ]
+  }
+}

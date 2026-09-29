@@ -1,0 +1,57 @@
+{
+  "text": "previous moves 31.\n♗3. comment",
+  "expected": "previous moves 31.♗d3.\n comment",
+  "width": 637,
+  "height": 95,
+  "samples": "eJzt3WuuozAMhuEuzTvz0ry0TrkmThygMMARfZ8fM20CFUf6lAsQeL8BAAAAAAAAAL9HX4no3UeDX5Jnr8+ftTepq4AD5FUSv4GlGr3lCPFYVfZ8xsyF866DxCNZEL48Y0ttInBIOeRbDJ/edZR4JhnmGKpxyAgfLhBPLAgfrpBCZlEh4cNpUr+bzysIH8706W9F8oxZVimfASHhw1nKuW51QkUJH06ylr10EUSvPzg8m8+eLmwQ1AFHFC2ftTfQy48ND7c65iN8OMtntqudZvoIH86WLnEUFYQPp2udUlmYCAP/hzaavlejHDjkM9az8WN236jfptntalkAbDc0duonHGX32grfFFa76mjxKOG9pM0xX6O8KAY2icNXbLQWPuYh2CXKnrW20Ub5RceKh5H17DVPtRA+HFKtXtN6m7Xw0e1iH/NLhyzapBGyqTzaB9jIwtABAAAAAAAAAAAAAB7PuOEFd9HGHVrA6frH/undR4GfJJ/0ET7cQjZ0uzas2vSF3FyIg3TLbc5+3YhqtqSEFenYq4uRdQ9BsIWN/CsFq3WcesWB4nFkfH+lLEZojpv/1lqxBKyz1GzpUoTWwkf68C0bmz3r/1noen346uyxMg7fGlssG7JjjQbsM6mVKHxC+LCbjWGbxntSPdOgWqo+lE4TXCF82En78GWnWorwBWO74hdS+vSaQ8ZTDGGy4dquvcvwSZ29MnxK+LDP3I2m83dZbZQ9Hz7TRgWwRqcGS6ZTKNmEI8zelLFqLGiXHjgeQPz0VrIMxU+jfDVq7Q18x1xsJOs8/evMq3cv+PBJ9iPARjo9ZFz7ewUsrxiD5b+W1YQPu7mRnabyokOdG8Kxuux2ubqG73VXdOeGLysvUlWGr38NnJA+HJFFTvPxX9EY+luq3O4+lcBW/V0tUfPVCp8WPyDBvsAWbsiXN19F2NoNHE0fdhoaLZ1e56a+IjVozYj516/yyGhsV7R8Nlf4rtgP7fJlG67VbD0NH4hFIz5/kjmf1vo98uC+67OBQMCmt1hKFiIZv/YvV33Fup3Dis8uzTkxkLj7AqSLnGQv8e3TU906kMIXXfY1V6F3/nH427qU6ByUofUbv2v/wYIbV+bwSV1cXITTG/82/HFlsNzFilda2ZEKpg26ijp8Nvws3S42cOnrhnhzrytRmHTaYV7zUe7/ziuY7WJJv1iy+1/nEp0/2LxZ8ICWrKJVCQAAAAAAAAAAAAAAAHzpHxYIYDY=",
+  "words": [
+    [
+      135.12008605957033,
+      0.9600000000000364,
+      151.7988885498047,
+      10.809822998046911,
+      "31.",
+      1,
+      51,
+      3
+    ],
+    [
+      0.960097656250003,
+      12.000008544921911,
+      24.19211135864258,
+      21.60962768554691,
+      "2d3.",
+      1,
+      53,
+      0
+    ]
+  ],
+  "records": [
+    {
+      "symbol": "♗",
+      "piece": "B",
+      "bbox": [
+        0.9600000000000044,
+        11.760000000000048,
+        8.640000000000004,
+        19.680000000000064
+      ],
+      "similarity": 0.9152,
+      "profile": "classic-book-figurines-v2",
+      "original_word": "&",
+      "replacement": "♗"
+    }
+  ],
+  "source": {
+    "book": "Kasparov_MGP_Vol_1.djvu",
+    "file_page": 23,
+    "dpi": 300,
+    "bbox_pixels": [
+      86,
+      1321,
+      723,
+      1416
+    ],
+    "redacted": true
+  }
+}

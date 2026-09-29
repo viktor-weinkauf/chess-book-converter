@@ -1,5 +1,38 @@
 # Chess Book Converter
 
+Latest OCR improvement: [read a failed source word at two scales](SOURCE_REREAD_DEVELOPMENT_RU.md).
+Incomplete audited bold notation is reread in its original page region at
+360 and 450 dpi. Both complete readings must agree at the existing character
+thresholds. No board position or reference game participates in the decoding.
+
+Latest safety fix: [reserve unread mainline turns](MAINLINE_CLAIM_DEVELOPMENT_RU.md).
+An audited number at the start of a separate notation paragraph reserves its
+turn even when the adjacent figurine is unreadable. Unanchored analysis cannot
+replace it; unresolved turns are exported as incomplete prefixes. Comparative
+phrases such as “better than” also keep alternatives in comments.
+
+The [second validation expansion](VALIDATION_ROUND2_RU.md) brings the local
+corpus to 27 cases. Three newly checked games expose two incomplete prefixes
+and a legal move taken from analysis instead of the mainline; two non-game
+pages correctly produce no games. Only these new cases were rerun in this stage.
+
+The [expanded validation set](EXPANDED_VALIDATION_RU.md) adds three unseen
+examples and a biography-only page. It exposes a wrong but legal OCR repair,
+a missing table move, and an undetected diagram continuation. These failures
+remain in the test set; the recognition code was frozen during this evaluation.
+
+Latest local development: [bounded post-result comments](CLOSING_COMMENT_DEVELOPMENT_RU.md).
+Mainline mode retains a clearly bounded final chess explanation at the last move,
+without playing its moves or absorbing the following biography. Ambiguous tails
+are reported; OCR errors inside retained comments are not automatically repaired.
+Earlier: [glued promotions and the end of a game](PROMOTION_DEVELOPMENT_RU.md).
+An explicitly printed promotion can be separated from a glued numbered reply;
+a draw announcement at the start of the final paragraph stops postgame analysis
+from entering the mainline. Earlier: [column boundaries and damaged pawn words](COLUMN_PAWN_DEVELOPMENT_RU.md).
+Merged headings request a geometrical reread; short corrupted pawn words require
+complete original-pixel evidence. Examples introduced by «скажем» or «например»
+remain textual analysis unless a mainline anchor takes precedence.
+
 A small Windows program that converts chess books and games:
 
 | From | To |
@@ -45,6 +78,11 @@ restores the full Spassky–Yukhtman mainline (59 plies) and finds the previousl
 missed Anderssen–Kieseritzky heading; that game still stops after four plies.
 Targeted original-page layout retries separate interleaved columns and leave
 the primary OCR cache intact.
+The next [diverse-book evaluation](DIVERSE_DEVELOPMENT_RU.md) adds two unseen
+games and a biography-only page. Original-page checks recover missed figurine
+words and moves split across lines. Mainline mode also prevents suggestions
+introduced by "better" or continuations of analysis from filling unread turns.
+The evaluation records failed examples as well as successful extractions.
 
 ## Setup
 
@@ -230,6 +268,31 @@ to generate its output.
 For live book conversion checks, `corpus_runner.py` accepts `compare_tree: true`
 in a case. Such a case checks the complete tree, comments, NAGs and initial FEN
 and returns code 2 when the mainline matches but some branches are missing.
+
+Mainline OCR now stops before an ambiguous figurine move when its destination
+file is unreadable and several squares fit. The confirmed prefix is saved as
+incomplete; the quality report retains the source continuation. See
+[the local validation results](SAFE_DESTINATION_DEVELOPMENT_RU.md) for the
+Anderssen–Dufresne regression and the unchanged 21 earlier examples.
+
+An additional bold digit sample now recovers the damaged `19...Qxf3` directly
+from the scan, extending that checked prefix from 37 to 42 plies. The sample
+comes from a separate word on the preceding page; confidence thresholds and
+the ambiguity guard remain unchanged. See [fullness validation](FULLNESS_DEVELOPMENT_RU.md)
+for the remaining line-order problem and two independent book regressions.
+
+The subsequent [line-order repair](LINE_ORDER_DEVELOPMENT_RU.md) resolves that
+ending: Anderssen–Dufresne now matches all 47 plies and the result. Oversized OCR
+word boxes are tightened only when peer lines and an unambiguous ink band agree.
+The report records the old and new bounds; OCR cache version 22 prevents reuse
+of the former line order. This does not establish exact fidelity of comments or NAGs.
+
+The [Larsen and Keres follow-up](LARSEN_KERES_DEVELOPMENT_RU.md) adds geometry
+retries for backwards table order and agreement-based rereading of damaged
+black-move rows. Hyphenated commentary and a quoted game's resignation no
+longer impersonate mainline rows or the end of the current game. The checked
+Larsen–Spassky mainline is complete; Keres–Winter is still a marked partial
+prefix. Reference PGNs are used only by validation, never by conversion.
 
 ## Licenses
 

@@ -6,11 +6,11 @@ import chess_converter as c
 from conversion_quality import serialize_games
 
 
-def extract(text, *, table=False, bold=(), keep=True):
-    tokens, lines = c.tokenize([text], boundaries=True)
+def extract(text, *, table=False, bold=(), keep=True, ocr=False):
+    tokens, lines = c.tokenize([text], {1} if ocr else set(), boundaries=True)
     visual = {i for i, t in enumerate(tokens) if t[0] == 'num' and t[3] in bold}
     finder = c.GameFinder('Book', ['en'], keep, lines, table=c.table_layout(tokens) if table else None,
-                          visual_tokens=visual, mainline_only=True)
+                          visual_tokens=visual, mainline_only=True, ocr_pages={1} if ocr else set())
     finder.run(tokens)
     assert not finder.problems
     assert all(len(n.variations) <= 1 for g in finder.games for n in [g, *g.mainline()])
@@ -71,6 +71,58 @@ def test_analysis_of_earlier_move_stays_text():
     f = extract('1. e4 e5 2. Nf3 Nc6 Instead 2... d6 was possible. 3. Bb5 a6 1-0')
     assert len(list(f.games[0].mainline_moves())) == 6
     assert '2... d6 was possible.' in list(f.games[0].mainline())[3].comment
+
+
+@pytest.mark.parametrize('cue', ['После', 'after'])
+def test_continuation_of_an_alternative_cannot_supply_a_missing_mainline_turn(cue):
+    text = ('№ 1.\nAlice - Bob\n1. e4 e5 2. Nf3\n'
+            f'Instead 2. Nc3 is possible. {cue} 2... Nc6 (2... d6) the position is different.\n'
+            '2... unread Лучше 2... d6 is stronger.\n3. Bc4 Nf6\n1-0')
+    f = extract(text, bold=(2, 5))
+    game = f.games[0]
+    assert [n.san() for n in game.mainline()] == ['e4', 'e5', 'Nf3']
+    assert game.headers['MissingMove'] == '2...' and game.headers['Result'] == '*'
+    assert 'Nc6' in list(game.mainline())[-1].comment
+
+
+@pytest.mark.parametrize('cue', ['Лучше', 'Сильнее', 'Энергичнее', 'Скажем,', 'Например,',
+                               'Better', 'Stronger', 'Preferable'])
+def test_suggested_legal_move_cannot_replace_an_unread_mainline_move(cue):
+    text = ('№ 1.\nAlice - Bob\n1. e4 e5 2. Nf3\n'
+            f'2... unread {cue} 2... Nc6.\n3. Bc4 Nf6\n1-0')
+    f = extract(text, bold=(2, 4))
+    assert [n.san() for n in f.games[0].mainline()] == ['e4', 'e5', 'Nf3']
+    assert f.games[0].headers['MissingMove'] == '2...'
+
+
+@pytest.mark.parametrize('cue', ['Скажем,', 'Например,'])
+def test_example_keeps_its_continuation_as_comment_then_resumes_mainline(cue):
+    text = ('№ 1.\nAlice - Bob\n1. e4 e5 2. Nf3\n'
+            f'{cue} 2... Nc6 3. Bc4 и т.д.\n2... d6 3. Bb5+ Bd7\n1-0')
+    f = extract(text, bold=(2,))
+    nodes = list(f.games[0].mainline())
+    assert [n.san() for n in nodes] == ['e4', 'e5', 'Nf3', 'd6', 'Bb5+', 'Bd7']
+    assert 'Nc6' in nodes[2].comment and 'Bc4' in nodes[2].comment
+    assert not nodes[3].comment
+
+
+def test_a_confirmed_mainline_anchor_can_resume_after_the_word_after():
+    text = ('№ 1.\nAlice - Bob\n1. e4 e5 2. Nf3\n'
+            'Instead 2. Nc3 is possible.\nAfter 2... d6\n3. Bc4 Nf6\n1-0')
+    f = extract(text, bold=(2, 4, 5))
+    assert [n.san() for n in f.games[0].mainline()] == ['e4', 'e5', 'Nf3', 'd6', 'Bc4', 'Nf6']
+
+
+def test_fragment_without_a_file_or_terminal_rank_cannot_be_filled_by_legal_lookahead(monkeypatch):
+    def forbidden(*a, **k):
+        raise AssertionError('Lookahead cannot manufacture a missing file')
+    monkeypatch.setattr(c.GameFinder, 'fitting_moves', forbidden)
+    text = ('№ 1.\nAlice - Bob\n1. e4 e5 2. Nf3\n'
+            '2... 2\\п 5?! Better 2... d6.\n3. Bc4 Nf6\n1-0')
+    f = extract(text, bold=(2, 4), ocr=True)
+    assert [n.san() for n in f.games[0].mainline()] == ['e4', 'e5', 'Nf3']
+    assert f.games[0].headers['MissingMove'] == '2...'
+    assert any(d['code'] == 'ocr_incomplete_move_fragment' for d in f.diagnostics)
 
 
 def test_inline_analysis_result_is_not_the_game_result():

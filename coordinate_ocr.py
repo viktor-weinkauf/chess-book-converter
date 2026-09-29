@@ -54,7 +54,7 @@ def profile_fingerprint():
     return hashlib.sha256(PROFILE.read_bytes() + REGULAR_PROFILE.read_bytes()).hexdigest()[:16]
 
 
-def decode(samples, stride, rect, glyphs, dpi, profile, debug=None, number_prefix=None):
+def decode(samples, stride, rect, glyphs, dpi, profile, debug=None, number_prefix=None, standalone_number=False):
     """Segment touching characters with a bounded search; reject incomplete words."""
     data, templates = profile
     left, top, right, bottom = rect
@@ -156,7 +156,9 @@ def decode(samples, stride, rect, glyphs, dpi, profile, debug=None, number_prefi
             # A clear printed move number can identify typography even when
             # the move itself is unreadable. It must agree with the OCR number;
             # never use a partial reading to change letters/squares.
-            prefixes = [row for x,rows in states.items() if x < end for row in rows if row[0] == number_prefix]
+            prefixes = [row for x,rows in states.items()
+                        if (x == end if standalone_number else x < end)
+                        for row in rows if row[0] == number_prefix]
             if prefixes:
                 return max(prefixes, key=lambda row: min(row[1]))
         return None

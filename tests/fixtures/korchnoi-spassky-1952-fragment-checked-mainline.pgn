@@ -1,0 +1,11 @@
+[Event "?"]
+[Site "?"]
+[Date "1952.??.??"]
+[Round "?"]
+[White "Korchnoi"]
+[Black "Spassky"]
+[Result "0-1"]
+[FEN "2b1rb1k/r1n3pp/1pP1pp2/1P3P2/2NBP3/1Q1N4/6qP/1K1RR3 b - - 0 30"]
+[SetUp "1"]
+
+30... Nxb5 31. Bxb6 Na3+ 32. Kc1 Ra6 33. Rd2 Qf3 34. Rf2 Qh3 35. Ncb2 Qh5 36. Nc5 Bxc5 37. Bxc5 Rxc6 38. Qxa3 exf5 39. Kb1 fxe4 40. Bd4 Qd5 41. Qe3 Be6 42. Rc2 Ra6 43. Kc1 Rd8 44. Rc4 Qb5 45. Rc5 Qb4 46. Bxf6 Ra1+ 47. Kc2 Rd2+ 0-1

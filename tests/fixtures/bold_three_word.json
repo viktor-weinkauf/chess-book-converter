@@ -1,0 +1,110 @@
+{
+  "source": {
+    "book": "Kasparov_MGP_Vol_1.djvu",
+    "file_page": 32,
+    "dpi": 300,
+    "bbox_pixels": [
+      142,
+      1325,
+      358,
+      1371
+    ]
+  },
+  "width": 216,
+  "height": 46,
+  "samples": "eJztmVGSwyAIhj0aN+NoHC2biCIomOhmpi9hZ9qmKPyforHZ4/jsHUP8tYJ3jXkIUkqUP+EPxbxnhSdlO6nOV/i1phcMC0/S7/RrVf+yXIBQeDCpebscSI/jbOQmZIuUnfY4f2dcgJkD+PJ6K1xxORLPcBJNlBBDlac6chyUqg3qCcQHO2ilALNM4uv6NU7KsWUt3E1inelR4OUg39Mh2047K6IurOtD4cL25uVsvVJdjbWlJ6X/XkZ/jCEGfaf1PUxzFSA4ZNqCwRonZ1RSpODoIMdxg7UBBklIUrlk4YXLq24ccjpKUsTlOSbRi+EqGGku4iRleVHqK8TLTIfPhZFIx6Gju1gbd1OWhrkvchJoeFOua5+jUEvE5TjcQQPS+wetckEeDCZCVpsEj1ob2cJRssnWDXU8tVzTc4Pryt2WMh6Lxlt8DgesmF/1dOngVlFfH8o7DN8aF5jMe1xJ0kILC5IQdfBkzcYCCDyKC0pI1dbjQu9ylUtScJHBVd0t4ROuXGt6FqwQxUvcntSceVzcbp9LSjinJjt9I1e/E2Avp0bzk2jHDVdevl6Th1YZsHHJ8W/k6m+bxE3mWOA6XC5z00fymjw0/0aouchcq51YztvBLDoZ6IbLjFAbj41fgxOuKsLKlQ4qCNiOlsvHCrjsKc0PuMZ13WisQMllfoJ4XP3g6POX8mmsgEuBKS3rWBKHpUMenBL3ZiBcMSNC049+nE51K/tGuMEVF+Jde8enjj5j+05dxFU9KhbucPkVHQ+Sy0WDWBra02Es5mJrWHpB6CDhM4Q+gbEWwYZz11dN0LpLShriPeJSwy097Rc1QJkA0KfYCVdL4YfTowh9U107e1yTESrfgO0fJo64unADV3Zdf9jO+ip8tB7nXN50dacq2985ct1wRWfReXdRI6wt4T2Xh7XKdVeHW1zOqC1wuQfKVS6oEcCUEgThnnG1Ud7hguT1WuSq1+dWwjfnLt0dlzffapQjrtlh3Q00P9B1u8AR3cDUUeiGa+xvHmNBxJUfEl9lMnJJH/+HAZm84KnkFhKn+sz9z4arlxR1756qd+mf2caT+fBx/7+e9E//h/DZZ5999tlnn3322Sv2B7T5kEU=",
+  "text": "19...♕#3?",
+  "expected": "19...♕:f3?",
+  "records": [
+    {
+      "kind": "coordinate",
+      "reading": "number_only",
+      "original_word": "19...♕#3?",
+      "replacement": "19...♕#3?",
+      "changed": false,
+      "bbox": [
+        0.240000000000002,
+        0.43998779296873636,
+        51.599999999999994,
+        10.999987792968739
+      ],
+      "characters": [
+        {
+          "char": "1",
+          "bbox": [
+            0.480000000000004,
+            1.639987792968725,
+            3.8400000000000034,
+            8.359987792968752
+          ],
+          "similarity": 0.9808
+        },
+        {
+          "char": "9",
+          "bbox": [
+            6.480000000000004,
+            1.639987792968725,
+            12.480000000000004,
+            8.359987792968752
+          ],
+          "similarity": 0.9653
+        },
+        {
+          "char": ".",
+          "bbox": [
+            13.440000000000005,
+            6.199987792968727,
+            15.840000000000003,
+            8.359987792968752
+          ],
+          "similarity": 0.9465
+        },
+        {
+          "char": ".",
+          "bbox": [
+            17.04,
+            6.199987792968727,
+            19.200000000000003,
+            8.359987792968752
+          ],
+          "similarity": 0.9705
+        },
+        {
+          "char": ".",
+          "bbox": [
+            20.4,
+            6.439987792968736,
+            22.800000000000004,
+            8.359987792968752
+          ],
+          "similarity": 0.981
+        }
+      ],
+      "style": "bold",
+      "expanded_clipped_edge": true,
+      "isolated_text_band": false,
+      "joined_number_fragment": false,
+      "profile": "bold-algebraic-v2-coverage-v2",
+      "line": 0,
+      "page": 32,
+      "dpi": 300
+    },
+    {
+      "symbol": "♕",
+      "piece": "Q",
+      "bbox": [
+        23.28,
+        0.2400000000000091,
+        31.680000000000007,
+        8.399999999999977
+      ],
+      "similarity": 0.9481,
+      "profile": "classic-book-figurines-v2",
+      "original_word": "19...:#3?",
+      "replacement": "19...♕#3?",
+      "page": 32,
+      "dpi": 300,
+      "line": 0
+    }
+  ]
+}

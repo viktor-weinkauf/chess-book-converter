@@ -172,7 +172,7 @@ def build_report(finder, tokens, pages, source, destination, first, count, optio
             issue("unparsed_move_candidate", "Move-like text was not exported as a move.", token=index)
     for diagnostic in finder.diagnostics:
         record = dict(diagnostic)
-        if record["code"] == "move_sequence_gap":
+        if record["code"] in {"move_sequence_gap", "ocr_ambiguous_destination", "mainline_move_unresolved"}:
             first_token = record["token"]
             last_token = min(record.get("end_token", first_token), len(tokens) - 1)
             source_lines = []
